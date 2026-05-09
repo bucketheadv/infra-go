@@ -1,0 +1,48 @@
+# 示例：复制为 applog.yaml 并由 applog.MustLoad 加载
+callerFileMaxLen: 96
+
+appenders:
+  stdConsole:
+    type: console
+    colored: true
+    layout: pattern
+    pattern: "%d{2006-01-02 15:04:05.000} %clr(%pid){blue} %clr(%5level){magenta} %clr(%fileLine){cyan} %clr([%logger]){yellow} %clr(-){faint} %msg%n"
+    levelColors:
+      warn: yellow
+      error: red
+      fatal: magenta
+    fieldColors:
+      date: green
+      fileLine: cyan
+      logger: yellow
+      msg: white
+  appFile:
+    type: rollingFile
+    path: logs/application.log
+    layout: pattern
+    pattern: "%d{2006-01-02T15:04:05.000} [%pid] [%level] [%fileLine] [%logger] %msg%n"
+    colored: false
+    maxLinesPerFile: 50000
+    retentionDays: 14
+
+root:
+  level: info
+  appenders:
+    - stdConsole
+    - appFile
+
+loggers:
+  app:
+    level: info
+    appenders:
+      - stdConsole
+      - appFile
+  access:
+    level: info
+    appenders:
+      - stdConsole
+  gorm:
+    level: info
+    appenders:
+      - stdConsole
+      - appFile

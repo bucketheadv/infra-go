@@ -24,6 +24,8 @@ import "github.com/bucketheadv/infra-go/applog"
 
 执行 `go mod tidy`。
 
+与 `github.com/bucketheadv/infra-market/...` 等同文件并列时，按 **import 路径字典序**：`infra-go` 在 `infra-market` 之前；第三方与当前模块之间空一行后，块内同样排序。可用 **`goimports -w .`** 自动整理。
+
 > 若你 fork 后修改了模块路径，需与 `infra-go/go.mod` 的 `module` 及库内 `applog/const.go` 中的前缀保持一致。
 
 ## 2. 初始化
@@ -107,7 +109,7 @@ applog.Infof(ctx, applog.NameApp, "hello %s", name)
 applog.Errorf(ctx, applog.NameApp, "err: %v", err)
 ```
 
-预置名称常量：`NameRoot`、`NameApp`、`NameAccess`、`NameGorm`（可按需在业务里自行定义字符串）。
+预置名称常量：`NameRoot`、`NameApp`、`NameAccess`、`NameGorm`；Gin 旁路输出还可使用 `NameGinWriter`（`InstallGinWriters` 默认 logger 名，建议在 YAML 中配置 `loggers.gin`）。
 
 也可先取实例再调方法：
 
@@ -127,7 +129,37 @@ applog.LogFrom(ctx, "app", applog.LevelInfo, file, line, msg)
 applog.Close()
 ```
 
-## 6. GORM
+## 6. Gin
+
+与 `gin.Default()` 中的访问日志、Recovery 及写入 `DefaultWriter` / `DefaultErrorWriter` 的行为对齐，输出统一走 applog（无 ANSI；访问行按状态码映射级别：5xx → error，4xx → warn，其它 → info）。
+
+访问日志里的 **`%fileLine`**：固定为 **`applog/gin.go`（及 writer 桥接处）的绝对路径 + 行号**（`LogFrom` 对绝对路径不再做缩短，便于终端/IDE 按路径跳转）。请求结束后栈上多为 net/http/gin，无法稳定映射到业务 handler。
+
+**中间件**（顺序与 `gin.Default()` 一致：先 `GinLogger` 再 `GinRecovery`）：
+
+```go
+engine := gin.New()
+engine.Use(applog.GinLogger(applog.GinLoggerConfig{
+    // LoggerName: applog.NameAccess, // 默认即为 access
+    // SkipPaths:  []string{"/health"},
+}))
+engine.Use(applog.GinRecovery(applog.GinRecoveryConfig{
+    // LoggerName: applog.NameApp, // 默认即为 app
+}))
+```
+
+**框架杂项输出**（如 debug 路由等内部 `fmt.Fprintf(gin.DefaultWriter, ...)`）：在 `MustLoad` 之后调用一次：
+
+```go
+applog.InstallGinWriters(applog.GinWritersConfig{
+    // OutLoggerName: applog.NameGinWriter,
+    // ErrLoggerName: applog.NameGinWriter,
+})
+```
+
+建议在 YAML 中为 `access`、`app`、`gin` 分别配置 `loggers`（示例见仓库 `applog.example.yaml`）。
+
+## 7. GORM
 
 将 `*gorm.DB` 的 logger 换成 `applog`（需在 YAML 中配置 `loggers.gorm` 或使用 root 的 appender）：
 
@@ -149,7 +181,7 @@ db.Config.Logger = applog.NewGormLogger(applog.GormLoggerConfig{
 
 SQL 会合并为单行：`[耗时ms] [rows:n] SQL...`，`file:line` 为业务里发起查询的栈位置（已跳过 GORM 与本库）。
 
-## 7. 注意事项
+## 8. 注意事项
 
 - 配置文件与 `rollingFile.path` 的解析规则见 **2.1 节**。
 - 与 **go-spring** 等框架并存时，框架自带的 `log.yaml` 与 **`applog` 的 YAML** 是两套配置，互不影响。

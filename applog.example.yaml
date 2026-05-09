@@ -46,3 +46,9 @@ loggers:
     appenders:
       - stdConsole
       - appFile
+  # gin.InstallGinWriters 默认写入本 logger（未配置则回退 root）
+  gin:
+    level: info
+    appenders:
+      - stdConsole
+      - appFile

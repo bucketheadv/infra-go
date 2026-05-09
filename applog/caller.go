@@ -37,14 +37,23 @@ func isApplogFrame(f runtime.Frame) bool {
 	return strings.Contains(slash, "/infra-go/applog/")
 }
 
-// shortenCallerPath 尽量缩成从 internal/ 起的相对路径，便于阅读且与仓库布局一致。
+// shortenCallerPath 尽量缩短显示路径；业务代码常截成 internal/...；标准库截成 GOROOT/src 后的 net/http/...，避免把 net/http/internal 误收成项目 internal。
 func shortenCallerPath(file string) string {
 	if file == "" || file == "?" {
 		return file
 	}
-	s := filepath.ToSlash(file)
-	if i := strings.Index(s, "/internal/"); i >= 0 {
-		return s[i+1:]
+	slashPath := filepath.ToSlash(filepath.Clean(file))
+	if gr := runtime.GOROOT(); gr != "" {
+		srcPrefix := filepath.ToSlash(filepath.Clean(gr)) + "/src/"
+		if strings.HasPrefix(slashPath, srcPrefix) {
+			return strings.TrimPrefix(slashPath, srcPrefix)
+		}
+	}
+	if i := strings.Index(slashPath, "/internal/"); i >= 0 {
+		return slashPath[i+1:]
+	}
+	if i := strings.Index(slashPath, "/infra-go/applog/"); i >= 0 {
+		return slashPath[i+1:]
 	}
 	return file
 }

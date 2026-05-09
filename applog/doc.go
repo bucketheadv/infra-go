@@ -8,5 +8,6 @@
 //   - pattern：占位符 %d/%date、%level/%p、%fileLine/%F、%logger/%c、%pid、%msg/%m、%n，%% 转义；
 //     %clr(子模式){颜色}；fieldColors / levelColors；
 //   - 调用位置：跳过本包栈帧；GORM：跳过 applog 与 gorm.io 后的业务帧；
-//   - NewGormLogger：SQL 单行写入命名 logger（默认 NameGorm）。
+//   - NewGormLogger：SQL 单行写入命名 logger（默认 NameGorm）；
+//   - GinLogger / GinRecovery / InstallGinWriters：与 gin 默认 Logger、Recovery 及 DefaultWriter 行为兼容，输出走 applog。
 package applog

@@ -3,6 +3,7 @@ package applog
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -56,7 +57,11 @@ func LogFrom(ctx context.Context, loggerName string, lv Level, file string, line
 	}
 	f := file
 	if f != "" && f != "?" {
-		f = shortenCallerPath(f)
+		if filepath.IsAbs(f) {
+			f = filepath.ToSlash(filepath.Clean(f))
+		} else {
+			f = shortenCallerPath(f)
+		}
 	}
 	rec := &Record{
 		Time:   time.Now(),

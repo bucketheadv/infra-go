@@ -60,6 +60,22 @@ replace github.com/bucketheadv/infra-go => /绝对路径/infra-go
 - `version.Compare("1.2.3.40", "1.2.3.5") // 1`
 - `version.Compare("1.2.30-beta", "1.2.30") // 1`
 
+## tabular
+
+`import "github.com/bucketheadv/infra-go/tabular"`
+
+用于 Excel/CSV 与结构体数组互转，支持按 sheet 名称或下标读取，并按标题自动识别字段，例如：
+
+- `tabular.ReadExcel[Row](path, tabular.SheetSelector{Name: "Sheet1"})`
+- `tabular.ReadExcel[Row](path, tabular.SheetSelector{Index: 0})`
+- `tabular.ReadCSV[Row](path)`
+- `tabular.WriteExcel(path, "Sheet1", rows)`
+- `tabular.WriteCSV(path, rows)`
+- `tabular.WriteCSVMaps(path, mapRows, tabular.MapOptions{TitleMap: ...})`
+- `tabular.ReadCSVMaps(path, tabular.MapOptions{TitleMap: ...})`
+- `tabular.WriteExcelMaps(path, "Sheet1", mapRows, tabular.MapOptions{TitleMap: ...})`
+- `tabular.ReadExcelMaps(path, tabular.SheetSelector{Name: "Sheet1"}, tabular.MapOptions{TitleMap: ...})`
+
 ## jsonx
 
 `import "github.com/bucketheadv/infra-go/jsonx"`

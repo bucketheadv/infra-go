@@ -3,11 +3,8 @@
 // 模块：github.com/bucketheadv/infra-go/timezone
 //
 // 能力概览：
-//   - joda 风格命名：ForID / MustForID / UTC；
-//   - 默认时区：GetDefault / SetDefault；
-//   - 偏移时区：ForOffsetHours / ForOffsetHoursMinutes；
-//   - joda 语义转换：WithZone / WithZoneRetainFields；
-//   - 常用时区常量：IDAsiaShanghai / IDAsiaTokyo / IDEuropeLondon / IDAmericaNewYork；
-//   - 时间转换：ConvertUTCToLocal / ConvertLocalToUTC；
-//   - 时间解析与格式化：ParseDateTime / FormatDateTime。
+//   - 内置常用 UTC 偏移时区列表：TimeZones（UTC-12:00 ~ UTC+13:00，含半小时/45 分钟时区）；
+//   - 时区查询：GetTimeZone(name)；
+//   - 绝对时间转换：WithZone；
+//   - 保留年月日时分秒字段的时区重解释：WithZoneRetainFields。
 package timezone

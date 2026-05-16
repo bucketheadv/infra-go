@@ -21,12 +21,30 @@ replace github.com/bucketheadv/infra-go => /绝对路径/infra-go
 
 `import "github.com/bucketheadv/infra-go/timezone"`
 
-用法参考 joda-time 设计（含方法命名），例如：
+用于 UTC 偏移时区查询与时间换算，例如：
 
-- `timezone.ForID("Asia/Shanghai")`
-- `timezone.ForID("UTC+08")`
-- `timezone.GetDefault()` / `timezone.SetDefault(...)`
-- `timezone.UTC()`
-- `timezone.WithZone(t, zone)` / `timezone.WithZoneRetainFields(t, zone)`
-- `timezone.ForOffsetHours(8)`
-- 常用时区常量：`timezone.IDAsiaShanghai`、`timezone.IDAmericaNewYork`
+- `timezone.GetTimeZone("UTC+08:00")`
+- `timezone.WithZone(t, zone)`
+- `timezone.WithZoneRetainFields(t, zone)`
+
+## basic
+
+`import "github.com/bucketheadv/infra-go/basic"`
+
+用于基础类型转换与通用元组，例如：
+
+- `basic.StringTo[int]("123")`
+- `basic.ArrayElemTo[bool]([]string{"true","false"})`
+- `basic.Pair[int,string]`
+- `basic.Triple[int,string,bool]`
+
+## collection
+
+`import "github.com/bucketheadv/infra-go/collection"`
+
+用于常见集合处理，例如：
+
+- `collection.Partition(arr, size)`
+- `collection.GroupBy(arr, keyFn)`
+- `collection.ArrayToMap(arr, coverExists, keyFn)`
+- `collection.SortedMapTraversal(m, reverse, fn)`

@@ -10,7 +10,7 @@ import (
 
 var (
 	// TestOutputToDownloads 为 true 时，测试文件输出到 ~/Downloads/infra-go-tabular-tests。
-	TestOutputToDownloads = false
+	TestOutputToDownloads = true
 )
 
 type personRow struct {
@@ -93,6 +93,36 @@ func TestWriteReadExcelByNameAndIndex(t *testing.T) {
 	}
 	t.Logf("TestWriteReadExcelByNameAndIndex byIndex=%+v", gotByIndex)
 	assertRows(t, gotByIndex, input)
+}
+
+func TestWriteReadCSVStreamStruct(t *testing.T) {
+	dir := outputDir(t, "TestWriteReadCSVStreamStruct")
+	file := filepath.Join(dir, "struct-stream.csv")
+	t.Logf("TestWriteReadCSVStreamStruct file=%s", file)
+
+	input := sampleRows()
+	err := WriteCSVStream(file, func(write func(personRow) error) error {
+		for _, r := range input {
+			if err := write(r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("write csv struct stream failed: %v", err)
+	}
+
+	got := make([]personRow, 0, len(input))
+	err = ReadCSVStream[personRow](file, func(rowNum int, item personRow) error {
+		t.Logf("csv struct stream row=%d item=%+v", rowNum, item)
+		got = append(got, item)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read csv struct stream failed: %v", err)
+	}
+	assertRows(t, got, input)
 }
 
 func TestWriteReadCSVWithTitleTag(t *testing.T) {
@@ -227,6 +257,112 @@ func TestWriteReadExcelMaps(t *testing.T) {
 	}
 	if len(gotByIndex) != 1 || gotByIndex[0]["enabled"] != "true" {
 		t.Fatalf("unexpected parsed maps by index: %+v", gotByIndex)
+	}
+}
+
+func TestWriteReadExcelStreamStruct(t *testing.T) {
+	dir := outputDir(t, "TestWriteReadExcelStreamStruct")
+	file := filepath.Join(dir, "struct-stream.xlsx")
+	t.Logf("TestWriteReadExcelStreamStruct file=%s", file)
+
+	input := sampleRows()
+	err := WriteExcelStream(file, "People", func(write func(personRow) error) error {
+		for _, r := range input {
+			if err := write(r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("write excel struct stream failed: %v", err)
+	}
+
+	got := make([]personRow, 0, len(input))
+	err = ReadExcelStream[personRow](file, SheetSelector{Name: "People"}, func(rowNum int, item personRow) error {
+		t.Logf("excel struct stream row=%d item=%+v", rowNum, item)
+		got = append(got, item)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read excel struct stream failed: %v", err)
+	}
+	assertRows(t, got, input)
+}
+
+func TestWriteReadCSVMapsStream(t *testing.T) {
+	dir := outputDir(t, "TestWriteReadCSVMapsStream")
+	file := filepath.Join(dir, "maps-stream.csv")
+	t.Logf("TestWriteReadCSVMapsStream file=%s", file)
+
+	opts := MapOptions{
+		FieldOrder: []string{"id", "name", "enabled"},
+		TitleMap: map[string]string{
+			"id":      "编号",
+			"name":    "姓名",
+			"enabled": "启用",
+		},
+	}
+
+	err := WriteCSVMapsStream(file, opts, func(write func(map[string]any) error) error {
+		if err := write(map[string]any{"id": 1, "name": "alice", "enabled": true}); err != nil {
+			return err
+		}
+		return write(map[string]any{"id": 2, "name": "bob", "enabled": false})
+	})
+	if err != nil {
+		t.Fatalf("write csv maps stream failed: %v", err)
+	}
+
+	got := make([]map[string]string, 0)
+	err = ReadCSVMapsStream(file, opts, func(rowNum int, item map[string]string) error {
+		t.Logf("csv stream row=%d item=%+v", rowNum, item)
+		got = append(got, item)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read csv maps stream failed: %v", err)
+	}
+	if len(got) != 2 || got[0]["id"] != "1" || got[1]["name"] != "bob" {
+		t.Fatalf("unexpected csv stream maps: %+v", got)
+	}
+}
+
+func TestWriteReadExcelMapsStream(t *testing.T) {
+	dir := outputDir(t, "TestWriteReadExcelMapsStream")
+	file := filepath.Join(dir, "maps-stream.xlsx")
+	t.Logf("TestWriteReadExcelMapsStream file=%s", file)
+
+	opts := MapOptions{
+		FieldOrder: []string{"id", "name", "enabled"},
+		TitleMap: map[string]string{
+			"id":      "编号",
+			"name":    "姓名",
+			"enabled": "启用",
+		},
+	}
+
+	err := WriteExcelMapsStream(file, "People", opts, func(write func(map[string]any) error) error {
+		if err := write(map[string]any{"id": 1, "name": "alice", "enabled": true}); err != nil {
+			return err
+		}
+		return write(map[string]any{"id": 2, "name": "bob", "enabled": false})
+	})
+	if err != nil {
+		t.Fatalf("write excel maps stream failed: %v", err)
+	}
+
+	got := make([]map[string]string, 0)
+	err = ReadExcelMapsStream(file, SheetSelector{Name: "People"}, opts, func(rowNum int, item map[string]string) error {
+		t.Logf("excel stream row=%d item=%+v", rowNum, item)
+		got = append(got, item)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read excel maps stream failed: %v", err)
+	}
+	if len(got) != 2 || got[0]["id"] != "1" || got[1]["name"] != "bob" {
+		t.Fatalf("unexpected excel stream maps: %+v", got)
 	}
 }
 

@@ -7,5 +7,6 @@
 //   - 按结构体字段自动生成表头并写入 Excel/CSV；
 //   - 按首行表头自动识别列并读取到结构体数组；
 //   - 支持 []map[string]any / []map[string]string 读写 Excel/CSV；
+//   - 支持结构体与 map 数据流式读写（适合大文件）；
 //   - 支持字段标签：title / header / excel / csv / json（按优先级匹配）。
 package tabular

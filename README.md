@@ -71,10 +71,14 @@ replace github.com/bucketheadv/infra-go => /绝对路径/infra-go
 - `tabular.ReadCSV[Row](path)`
 - `tabular.WriteExcel(path, "Sheet1", rows)`
 - `tabular.WriteCSV(path, rows)`
+- `tabular.WriteCSVStream(path, producer)` / `tabular.ReadCSVStream[Row](path, handler)`
+- `tabular.WriteExcelStream(path, "Sheet1", producer)` / `tabular.ReadExcelStream[Row](path, selector, handler)`
 - `tabular.WriteCSVMaps(path, mapRows, tabular.MapOptions{TitleMap: ...})`
 - `tabular.ReadCSVMaps(path, tabular.MapOptions{TitleMap: ...})`
 - `tabular.WriteExcelMaps(path, "Sheet1", mapRows, tabular.MapOptions{TitleMap: ...})`
 - `tabular.ReadExcelMaps(path, tabular.SheetSelector{Name: "Sheet1"}, tabular.MapOptions{TitleMap: ...})`
+- `tabular.WriteCSVMapsStream(path, opts, producer)` / `tabular.ReadCSVMapsStream(path, opts, handler)`
+- `tabular.WriteExcelMapsStream(path, "Sheet1", opts, producer)` / `tabular.ReadExcelMapsStream(path, selector, opts, handler)`
 
 ## jsonx
 

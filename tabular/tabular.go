@@ -3,6 +3,7 @@ package tabular
 import (
 	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -110,6 +111,54 @@ func ReadCSV[T any](path string) ([]T, error) {
 	return decodeRows[T](rows)
 }
 
+// ReadCSVStream 流式读取 CSV，并按行回调结构体数据（适合大文件）。
+// rowNum 为 CSV 行号（从 1 开始，含表头行；回调从第 2 行开始触发）。
+func ReadCSVStream[T any](path string, handler func(rowNum int, item T) error) error {
+	metas, err := buildFieldMetas[T]()
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	reader := csv.NewReader(f)
+	headerRow, err := reader.Read()
+	if err == io.EOF {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	headerMap := make(map[string]int, len(headerRow))
+	for i, h := range headerRow {
+		headerMap[normalizeHeader(h)] = i
+	}
+
+	rowNum := 1
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		rowNum++
+
+		item, err := decodeStructRecord[T](record, metas, headerMap, rowNum)
+		if err != nil {
+			return err
+		}
+		if err := handler(rowNum, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // WriteCSV 将结构体切片写入 CSV，第一行为标题。
 func WriteCSV[T any](path string, rows []T) error {
 	metas, err := buildFieldMetas[T]()
@@ -140,6 +189,44 @@ func WriteCSV[T any](path string, rows []T) error {
 		if err := w.Write(record); err != nil {
 			return err
 		}
+	}
+	w.Flush()
+	return w.Error()
+}
+
+// WriteCSVStream 流式写入 CSV（适合大文件）。
+// producer 通过 write 回调逐条产出结构体数据。
+func WriteCSVStream[T any](path string, producer func(write func(T) error) error) error {
+	metas, err := buildFieldMetas[T]()
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	w := csv.NewWriter(f)
+	headers := make([]string, 0, len(metas))
+	for _, m := range metas {
+		headers = append(headers, m.header)
+	}
+	if err := w.Write(headers); err != nil {
+		return err
+	}
+
+	writeRow := func(row T) error {
+		rv := structValue(reflect.ValueOf(row))
+		record := make([]string, 0, len(metas))
+		for _, m := range metas {
+			record = append(record, formatStringValue(rv.FieldByIndex(m.index)))
+		}
+		return w.Write(record)
+	}
+
+	if err := producer(writeRow); err != nil {
+		return err
 	}
 	w.Flush()
 	return w.Error()
@@ -190,6 +277,43 @@ func ReadCSVMaps(path string, opts MapOptions) ([]map[string]string, error) {
 	return decodeMapRows(records, opts), nil
 }
 
+// ReadCSVMapsStream 流式读取 CSV，并按行回调 map 数据（适合大文件）。
+// rowNum 为 CSV 行号（从 1 开始，含表头行；回调从第 2 行开始触发）。
+func ReadCSVMapsStream(path string, opts MapOptions, handler func(rowNum int, item map[string]string) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	reader := csv.NewReader(f)
+	headerRow, err := reader.Read()
+	if err == io.EOF {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	fields := mapFieldsFromHeaders(headerRow, opts.TitleMap)
+
+	rowNum := 1
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		rowNum++
+		item := mapFromRecord(fields, record)
+		if err := handler(rowNum, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // WriteExcelMaps 将 []map[string]any 写入 Excel，第一行为标题。
 func WriteExcelMaps(path, sheetName string, rows []map[string]any, opts MapOptions) error {
 	plan := buildMapWritePlan(rows, opts)
@@ -216,6 +340,271 @@ func WriteExcelMaps(path, sheetName string, rows []map[string]any, opts MapOptio
 				return err
 			}
 		}
+	}
+	return f.SaveAs(path)
+}
+
+// WriteCSVMapsStream 流式写入 CSV（适合大文件）。
+// producer 通过 write 回调逐行产出数据。
+func WriteCSVMapsStream(path string, opts MapOptions, producer func(write func(map[string]any) error) error) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	w := csv.NewWriter(f)
+	headerWritten := false
+	fields := append([]string{}, opts.FieldOrder...)
+
+	writeHeader := func() error {
+		headers := make([]string, 0, len(fields))
+		for _, field := range fields {
+			headers = append(headers, mapFieldHeader(field, opts.TitleMap))
+		}
+		if err := w.Write(headers); err != nil {
+			return err
+		}
+		headerWritten = true
+		return nil
+	}
+
+	if len(fields) > 0 {
+		if err := writeHeader(); err != nil {
+			return err
+		}
+	}
+
+	writeRow := func(row map[string]any) error {
+		if !headerWritten {
+			fields = inferMapFields([]map[string]any{row})
+			if err := writeHeader(); err != nil {
+				return err
+			}
+		}
+		record := make([]string, 0, len(fields))
+		for _, field := range fields {
+			record = append(record, mapValueToString(row[field]))
+		}
+		return w.Write(record)
+	}
+
+	if err := producer(writeRow); err != nil {
+		return err
+	}
+	w.Flush()
+	return w.Error()
+}
+
+// ReadExcelMapsStream 流式读取 Excel，并按行回调 map 数据（适合大文件）。
+// rowNum 为 sheet 行号（从 1 开始，回调从第 2 行开始触发）。
+func ReadExcelMapsStream(path string, selector SheetSelector, opts MapOptions, handler func(rowNum int, item map[string]string) error) error {
+	f, err := excelize.OpenFile(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	sheetName, err := resolveSheetName(f, selector)
+	if err != nil {
+		return err
+	}
+	rows, err := f.Rows(sheetName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	rowNum := 0
+	fields := []string(nil)
+	for rows.Next() {
+		rowNum++
+		cols, err := rows.Columns()
+		if err != nil {
+			return err
+		}
+		if rowNum == 1 {
+			fields = mapFieldsFromHeaders(cols, opts.TitleMap)
+			continue
+		}
+		item := mapFromRecord(fields, cols)
+		if err := handler(rowNum, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReadExcelStream 流式读取 Excel，并按行回调结构体数据（适合大文件）。
+// rowNum 为 sheet 行号（从 1 开始，回调从第 2 行开始触发）。
+func ReadExcelStream[T any](path string, selector SheetSelector, handler func(rowNum int, item T) error) error {
+	metas, err := buildFieldMetas[T]()
+	if err != nil {
+		return err
+	}
+	f, err := excelize.OpenFile(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	sheetName, err := resolveSheetName(f, selector)
+	if err != nil {
+		return err
+	}
+	rows, err := f.Rows(sheetName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	rowNum := 0
+	headerMap := map[string]int(nil)
+	for rows.Next() {
+		rowNum++
+		cols, err := rows.Columns()
+		if err != nil {
+			return err
+		}
+		if rowNum == 1 {
+			headerMap = make(map[string]int, len(cols))
+			for i, h := range cols {
+				headerMap[normalizeHeader(h)] = i
+			}
+			continue
+		}
+		item, err := decodeStructRecord[T](cols, metas, headerMap, rowNum)
+		if err != nil {
+			return err
+		}
+		if err := handler(rowNum, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteExcelMapsStream 流式写入 Excel（适合大文件）。
+// producer 通过 write 回调逐行产出数据。
+func WriteExcelMapsStream(path, sheetName string, opts MapOptions, producer func(write func(map[string]any) error) error) error {
+	if sheetName == "" {
+		sheetName = "Sheet1"
+	}
+	f := excelize.NewFile()
+	defaultName := f.GetSheetName(f.GetActiveSheetIndex())
+	if defaultName == "" {
+		defaultName = "Sheet1"
+	}
+	_ = f.SetSheetName(defaultName, sheetName)
+
+	sw, err := f.NewStreamWriter(sheetName)
+	if err != nil {
+		return err
+	}
+
+	headerWritten := false
+	fields := append([]string{}, opts.FieldOrder...)
+	rowIndex := 1
+
+	writeHeader := func() error {
+		headers := make([]any, 0, len(fields))
+		for _, field := range fields {
+			headers = append(headers, mapFieldHeader(field, opts.TitleMap))
+		}
+		cell, _ := excelize.CoordinatesToCellName(1, rowIndex)
+		if err := sw.SetRow(cell, headers); err != nil {
+			return err
+		}
+		headerWritten = true
+		rowIndex++
+		return nil
+	}
+
+	if len(fields) > 0 {
+		if err := writeHeader(); err != nil {
+			return err
+		}
+	}
+
+	writeRow := func(row map[string]any) error {
+		if !headerWritten {
+			fields = inferMapFields([]map[string]any{row})
+			if err := writeHeader(); err != nil {
+				return err
+			}
+		}
+		values := make([]any, 0, len(fields))
+		for _, field := range fields {
+			values = append(values, mapValueToString(row[field]))
+		}
+		cell, _ := excelize.CoordinatesToCellName(1, rowIndex)
+		if err := sw.SetRow(cell, values); err != nil {
+			return err
+		}
+		rowIndex++
+		return nil
+	}
+
+	if err := producer(writeRow); err != nil {
+		return err
+	}
+	if err := sw.Flush(); err != nil {
+		return err
+	}
+	return f.SaveAs(path)
+}
+
+// WriteExcelStream 流式写入 Excel（适合大文件）。
+// producer 通过 write 回调逐条产出结构体数据。
+func WriteExcelStream[T any](path, sheetName string, producer func(write func(T) error) error) error {
+	metas, err := buildFieldMetas[T]()
+	if err != nil {
+		return err
+	}
+	if sheetName == "" {
+		sheetName = "Sheet1"
+	}
+	f := excelize.NewFile()
+	defaultName := f.GetSheetName(f.GetActiveSheetIndex())
+	if defaultName == "" {
+		defaultName = "Sheet1"
+	}
+	_ = f.SetSheetName(defaultName, sheetName)
+
+	sw, err := f.NewStreamWriter(sheetName)
+	if err != nil {
+		return err
+	}
+
+	headers := make([]any, 0, len(metas))
+	for _, m := range metas {
+		headers = append(headers, m.header)
+	}
+	startCell, _ := excelize.CoordinatesToCellName(1, 1)
+	if err := sw.SetRow(startCell, headers); err != nil {
+		return err
+	}
+	rowIndex := 2
+
+	writeRow := func(row T) error {
+		rv := structValue(reflect.ValueOf(row))
+		values := make([]any, 0, len(metas))
+		for _, m := range metas {
+			values = append(values, formatStringValue(rv.FieldByIndex(m.index)))
+		}
+		cell, _ := excelize.CoordinatesToCellName(1, rowIndex)
+		if err := sw.SetRow(cell, values); err != nil {
+			return err
+		}
+		rowIndex++
+		return nil
+	}
+
+	if err := producer(writeRow); err != nil {
+		return err
+	}
+	if err := sw.Flush(); err != nil {
+		return err
 	}
 	return f.SaveAs(path)
 }
@@ -281,24 +670,32 @@ func decodeRows[T any](rows [][]string) ([]T, error) {
 
 	result := make([]T, 0, max(0, len(rows)-1))
 	for i := 1; i < len(rows); i++ {
-		var item T
-		rv := structValue(reflect.ValueOf(&item).Elem())
-		for _, m := range metas {
-			idx, ok := headerMap[normalizeHeader(m.header)]
-			if !ok || idx >= len(rows[i]) {
-				continue
-			}
-			raw := strings.TrimSpace(rows[i][idx])
-			if raw == "" {
-				continue
-			}
-			if err := assignFromString(rv.FieldByIndex(m.index), raw); err != nil {
-				return nil, fmt.Errorf("row %d col %q: %w", i+1, m.header, err)
-			}
+		item, err := decodeStructRecord[T](rows[i], metas, headerMap, i+1)
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, item)
 	}
 	return result, nil
+}
+
+func decodeStructRecord[T any](record []string, metas []fieldMeta, headerMap map[string]int, rowNum int) (T, error) {
+	var item T
+	rv := structValue(reflect.ValueOf(&item).Elem())
+	for _, m := range metas {
+		idx, ok := headerMap[normalizeHeader(m.header)]
+		if !ok || idx >= len(record) {
+			continue
+		}
+		raw := strings.TrimSpace(record[idx])
+		if raw == "" {
+			continue
+		}
+		if err := assignFromString(rv.FieldByIndex(m.index), raw); err != nil {
+			return item, fmt.Errorf("row %d col %q: %w", rowNum, m.header, err)
+		}
+	}
+	return item, nil
 }
 
 func buildFieldMetas[T any]() ([]fieldMeta, error) {
@@ -539,23 +936,33 @@ func mapFieldHeader(field string, titleMap map[string]string) string {
 
 func decodeMapRows(rows [][]string, opts MapOptions) []map[string]string {
 	headers := rows[0]
-	fields := make([]string, 0, len(headers))
-	for _, h := range headers {
-		fields = append(fields, resolveMapFieldByHeader(h, opts.TitleMap))
-	}
+	fields := mapFieldsFromHeaders(headers, opts.TitleMap)
 	out := make([]map[string]string, 0, len(rows)-1)
 	for i := 1; i < len(rows); i++ {
-		item := make(map[string]string, len(fields))
-		for c, f := range fields {
-			if c < len(rows[i]) {
-				item[f] = rows[i][c]
-			} else {
-				item[f] = ""
-			}
-		}
+		item := mapFromRecord(fields, rows[i])
 		out = append(out, item)
 	}
 	return out
+}
+
+func mapFieldsFromHeaders(headers []string, titleMap map[string]string) []string {
+	fields := make([]string, 0, len(headers))
+	for _, h := range headers {
+		fields = append(fields, resolveMapFieldByHeader(h, titleMap))
+	}
+	return fields
+}
+
+func mapFromRecord(fields []string, record []string) map[string]string {
+	item := make(map[string]string, len(fields))
+	for c, f := range fields {
+		if c < len(record) {
+			item[f] = record[c]
+		} else {
+			item[f] = ""
+		}
+	}
+	return item
 }
 
 func resolveMapFieldByHeader(header string, titleMap map[string]string) string {

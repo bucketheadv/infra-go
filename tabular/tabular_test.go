@@ -11,7 +11,7 @@ import (
 
 var (
 	// TestOutputToDownloads 为 true 时，测试文件输出到 ~/Downloads/infra-go-tabular-tests。
-	TestOutputToDownloads = true
+	TestOutputToDownloads = false
 )
 
 type personRow struct {

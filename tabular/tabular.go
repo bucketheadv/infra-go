@@ -149,37 +149,14 @@ func ReadCSVStreamFromReader[T any](reader io.Reader, handler func(rowNum int, i
 
 // WriteCSV 将结构体切片写入 CSV，第一行为标题。
 func WriteCSV[T any](path string, rows []T) error {
-	metas, err := buildFieldMetas[T]()
-	if err != nil {
-		return err
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
-	w := csv.NewWriter(f)
-	headers := make([]string, 0, len(metas))
-	for _, m := range metas {
-		headers = append(headers, m.header)
-	}
-	if err := w.Write(headers); err != nil {
-		return err
-	}
-
-	for _, row := range rows {
-		rv := structValue(reflect.ValueOf(row))
-		record := make([]string, 0, len(metas))
-		for _, m := range metas {
-			record = append(record, formatStringValue(rv.FieldByIndex(m.index)))
+	return WriteCSVStream(path, func(write func(T) error) error {
+		for _, row := range rows {
+			if err := write(row); err != nil {
+				return err
+			}
 		}
-		if err := w.Write(record); err != nil {
-			return err
-		}
-	}
-	w.Flush()
-	return w.Error()
+		return nil
+	})
 }
 
 // WriteCSVStream 流式写入 CSV（适合大文件）。

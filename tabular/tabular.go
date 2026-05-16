@@ -37,17 +37,18 @@ type MapOptions struct {
 
 // ReadExcel 读取 Excel 并按标题映射到结构体切片。
 func ReadExcel[T any](path string, selector SheetSelector) ([]T, error) {
-	f, err := excelize.OpenFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
-	sheetName, err := resolveSheetName(f, selector)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := f.GetRows(sheetName)
+	return ReadExcelFromReader[T](f, selector)
+}
+
+// ReadExcelFromReader 从 io.Reader 读取 Excel 并按标题映射到结构体切片。
+func ReadExcelFromReader[T any](reader io.Reader, selector SheetSelector) ([]T, error) {
+	rows, err := readExcelRowsFromReader(reader, selector)
 	if err != nil {
 		return nil, err
 	}
@@ -99,64 +100,51 @@ func ReadCSV[T any](path string) ([]T, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	reader := csv.NewReader(f)
-	records, err := reader.ReadAll()
+	return ReadCSVFromReader[T](f)
+}
+
+// ReadCSVFromReader 从 io.Reader 读取 CSV 并按标题映射到结构体切片。
+func ReadCSVFromReader[T any](reader io.Reader) ([]T, error) {
+	records, err := readCSVRecords(reader)
 	if err != nil {
 		return nil, err
 	}
-	rows := make([][]string, 0, len(records))
-	for _, r := range records {
-		rows = append(rows, r)
-	}
-	return decodeRows[T](rows)
+	return decodeRows[T](records)
 }
 
 // ReadCSVStream 流式读取 CSV，并按行回调结构体数据（适合大文件）。
 // rowNum 为 CSV 行号（从 1 开始，含表头行；回调从第 2 行开始触发）。
 func ReadCSVStream[T any](path string, handler func(rowNum int, item T) error) error {
-	metas, err := buildFieldMetas[T]()
-	if err != nil {
-		return err
-	}
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 
-	reader := csv.NewReader(f)
-	headerRow, err := reader.Read()
-	if err == io.EOF {
-		return nil
-	}
+	return ReadCSVStreamFromReader[T](f, handler)
+}
+
+// ReadCSVStreamFromReader 从 io.Reader 流式读取 CSV 并按行回调结构体数据。
+func ReadCSVStreamFromReader[T any](reader io.Reader, handler func(rowNum int, item T) error) error {
+	metas, err := buildFieldMetas[T]()
 	if err != nil {
 		return err
 	}
-	headerMap := make(map[string]int, len(headerRow))
-	for i, h := range headerRow {
-		headerMap[normalizeHeader(h)] = i
-	}
-
-	rowNum := 1
-	for {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		rowNum++
-
-		item, err := decodeStructRecord[T](record, metas, headerMap, rowNum)
-		if err != nil {
-			return err
-		}
-		if err := handler(rowNum, item); err != nil {
-			return err
-		}
-	}
-	return nil
+	headerMap := map[string]int(nil)
+	return streamCSVRecords(
+		reader,
+		func(header []string) error {
+			headerMap = makeHeaderIndexMap(header)
+			return nil
+		},
+		func(rowNum int, record []string) error {
+			item, err := decodeStructRecord[T](record, metas, headerMap, rowNum)
+			if err != nil {
+				return err
+			}
+			return handler(rowNum, item)
+		},
+	)
 }
 
 // WriteCSV 将结构体切片写入 CSV，第一行为标题。
@@ -266,8 +254,12 @@ func ReadCSVMaps(path string, opts MapOptions) ([]map[string]string, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	reader := csv.NewReader(f)
-	records, err := reader.ReadAll()
+	return ReadCSVMapsFromReader(f, opts)
+}
+
+// ReadCSVMapsFromReader 从 io.Reader 读取 CSV 并映射为 []map[string]string。
+func ReadCSVMapsFromReader(reader io.Reader, opts MapOptions) ([]map[string]string, error) {
+	records, err := readCSVRecords(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -286,32 +278,22 @@ func ReadCSVMapsStream(path string, opts MapOptions, handler func(rowNum int, it
 	}
 	defer func() { _ = f.Close() }()
 
-	reader := csv.NewReader(f)
-	headerRow, err := reader.Read()
-	if err == io.EOF {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	fields := mapFieldsFromHeaders(headerRow, opts.TitleMap)
+	return ReadCSVMapsStreamFromReader(f, opts, handler)
+}
 
-	rowNum := 1
-	for {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		rowNum++
-		item := mapFromRecord(fields, record)
-		if err := handler(rowNum, item); err != nil {
-			return err
-		}
-	}
-	return nil
+// ReadCSVMapsStreamFromReader 从 io.Reader 流式读取 CSV 并按行回调 map 数据。
+func ReadCSVMapsStreamFromReader(reader io.Reader, opts MapOptions, handler func(rowNum int, item map[string]string) error) error {
+	fields := []string(nil)
+	return streamCSVRecords(
+		reader,
+		func(header []string) error {
+			fields = mapFieldsFromHeaders(header, opts.TitleMap)
+			return nil
+		},
+		func(rowNum int, record []string) error {
+			return handler(rowNum, mapFromRecord(fields, record))
+		},
+	)
 }
 
 // WriteExcelMaps 将 []map[string]any 写入 Excel，第一行为标题。
@@ -399,89 +381,57 @@ func WriteCSVMapsStream(path string, opts MapOptions, producer func(write func(m
 // ReadExcelMapsStream 流式读取 Excel，并按行回调 map 数据（适合大文件）。
 // rowNum 为 sheet 行号（从 1 开始，回调从第 2 行开始触发）。
 func ReadExcelMapsStream(path string, selector SheetSelector, opts MapOptions, handler func(rowNum int, item map[string]string) error) error {
-	f, err := excelize.OpenFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 
-	sheetName, err := resolveSheetName(f, selector)
-	if err != nil {
-		return err
-	}
-	rows, err := f.Rows(sheetName)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rows.Close() }()
+	return ReadExcelMapsStreamFromReader(f, selector, opts, handler)
+}
 
-	rowNum := 0
+// ReadExcelMapsStreamFromReader 从 io.Reader 流式读取 Excel 并按行回调 map 数据。
+func ReadExcelMapsStreamFromReader(reader io.Reader, selector SheetSelector, opts MapOptions, handler func(rowNum int, item map[string]string) error) error {
 	fields := []string(nil)
-	for rows.Next() {
-		rowNum++
-		cols, err := rows.Columns()
-		if err != nil {
-			return err
-		}
+	return streamExcelRows(reader, selector, func(rowNum int, cols []string) error {
 		if rowNum == 1 {
 			fields = mapFieldsFromHeaders(cols, opts.TitleMap)
-			continue
+			return nil
 		}
-		item := mapFromRecord(fields, cols)
-		if err := handler(rowNum, item); err != nil {
-			return err
-		}
-	}
-	return nil
+		return handler(rowNum, mapFromRecord(fields, cols))
+	})
 }
 
 // ReadExcelStream 流式读取 Excel，并按行回调结构体数据（适合大文件）。
 // rowNum 为 sheet 行号（从 1 开始，回调从第 2 行开始触发）。
 func ReadExcelStream[T any](path string, selector SheetSelector, handler func(rowNum int, item T) error) error {
-	metas, err := buildFieldMetas[T]()
-	if err != nil {
-		return err
-	}
-	f, err := excelize.OpenFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 
-	sheetName, err := resolveSheetName(f, selector)
-	if err != nil {
-		return err
-	}
-	rows, err := f.Rows(sheetName)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rows.Close() }()
+	return ReadExcelStreamFromReader[T](f, selector, handler)
+}
 
-	rowNum := 0
+// ReadExcelStreamFromReader 从 io.Reader 流式读取 Excel 并按行回调结构体数据。
+func ReadExcelStreamFromReader[T any](reader io.Reader, selector SheetSelector, handler func(rowNum int, item T) error) error {
+	metas, err := buildFieldMetas[T]()
+	if err != nil {
+		return err
+	}
 	headerMap := map[string]int(nil)
-	for rows.Next() {
-		rowNum++
-		cols, err := rows.Columns()
-		if err != nil {
-			return err
-		}
+	return streamExcelRows(reader, selector, func(rowNum int, cols []string) error {
 		if rowNum == 1 {
-			headerMap = make(map[string]int, len(cols))
-			for i, h := range cols {
-				headerMap[normalizeHeader(h)] = i
-			}
-			continue
+			headerMap = makeHeaderIndexMap(cols)
+			return nil
 		}
 		item, err := decodeStructRecord[T](cols, metas, headerMap, rowNum)
 		if err != nil {
 			return err
 		}
-		if err := handler(rowNum, item); err != nil {
-			return err
-		}
-	}
-	return nil
+		return handler(rowNum, item)
+	})
 }
 
 // WriteExcelMapsStream 流式写入 Excel（适合大文件）。
@@ -611,17 +561,18 @@ func WriteExcelStream[T any](path, sheetName string, producer func(write func(T)
 
 // ReadExcelMaps 读取 Excel 并映射为 []map[string]string（key 为字段名）。
 func ReadExcelMaps(path string, selector SheetSelector, opts MapOptions) ([]map[string]string, error) {
-	f, err := excelize.OpenFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
-	sheetName, err := resolveSheetName(f, selector)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := f.GetRows(sheetName)
+	return ReadExcelMapsFromReader(f, selector, opts)
+}
+
+// ReadExcelMapsFromReader 从 io.Reader 读取 Excel 并映射为 []map[string]string。
+func ReadExcelMapsFromReader(reader io.Reader, selector SheetSelector, opts MapOptions) ([]map[string]string, error) {
+	rows, err := readExcelRowsFromReader(reader, selector)
 	if err != nil {
 		return nil, err
 	}
@@ -652,6 +603,97 @@ func resolveSheetName(f *excelize.File, selector SheetSelector) (string, error) 
 		return "", fmt.Errorf("sheet index out of range: %d", selector.Index)
 	}
 	return names[selector.Index], nil
+}
+
+func readCSVRecords(reader io.Reader) ([][]string, error) {
+	csvReader := csv.NewReader(reader)
+	return csvReader.ReadAll()
+}
+
+func streamCSVRecords(
+	reader io.Reader,
+	onHeader func(header []string) error,
+	onRecord func(rowNum int, record []string) error,
+) error {
+	csvReader := csv.NewReader(reader)
+	headerRow, err := csvReader.Read()
+	if err == io.EOF {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := onHeader(headerRow); err != nil {
+		return err
+	}
+
+	rowNum := 1
+	for {
+		record, err := csvReader.Read()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		rowNum++
+		if err := onRecord(rowNum, record); err != nil {
+			return err
+		}
+	}
+}
+
+func readExcelRowsFromReader(reader io.Reader, selector SheetSelector) ([][]string, error) {
+	f, err := excelize.OpenReader(reader)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	sheetName, err := resolveSheetName(f, selector)
+	if err != nil {
+		return nil, err
+	}
+	return f.GetRows(sheetName)
+}
+
+func streamExcelRows(reader io.Reader, selector SheetSelector, onRow func(rowNum int, cols []string) error) error {
+	f, err := excelize.OpenReader(reader)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	sheetName, err := resolveSheetName(f, selector)
+	if err != nil {
+		return err
+	}
+	rows, err := f.Rows(sheetName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	rowNum := 0
+	for rows.Next() {
+		rowNum++
+		cols, err := rows.Columns()
+		if err != nil {
+			return err
+		}
+		if err := onRow(rowNum, cols); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func makeHeaderIndexMap(headers []string) map[string]int {
+	headerMap := make(map[string]int, len(headers))
+	for i, h := range headers {
+		headerMap[normalizeHeader(h)] = i
+	}
+	return headerMap
 }
 
 func decodeRows[T any](rows [][]string) ([]T, error) {

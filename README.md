@@ -59,3 +59,11 @@ replace github.com/bucketheadv/infra-go => /绝对路径/infra-go
 - `version.Compare("1.2", "1.1.99") // 1`
 - `version.Compare("1.2.3.40", "1.2.3.5") // 1`
 - `version.Compare("1.2.30-beta", "1.2.30") // 1`
+
+## jsonx
+
+`import "github.com/bucketheadv/infra-go/jsonx"`
+
+用于增强 JSON 反序列化：当 struct 字段是数字类型，而 JSON 中给的是字符串时自动转换，例如：
+
+- `jsonx.Unmarshal([]byte(\`{"id":"123","score":"9.8"}\`), &obj)`

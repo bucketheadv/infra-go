@@ -12,6 +12,8 @@ const (
 	ErrCodeTargetNotPointer ErrorCode = "TARGET_NOT_POINTER"
 	// ErrCodeConvertNumber 数字转换失败。
 	ErrCodeConvertNumber ErrorCode = "CONVERT_NUMBER"
+	// ErrCodeTypeMismatch JSON 值与目标字段类型不匹配。
+	ErrCodeTypeMismatch ErrorCode = "TYPE_MISMATCH"
 )
 
 // Error 是 jsonx 自定义错误类型。

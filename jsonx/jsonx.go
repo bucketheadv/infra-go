@@ -37,11 +37,7 @@ func Unmarshal(data []byte, v any) error {
 		return err
 	}
 
-	b, err := json.Marshal(converted)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(b, v)
+	return assignValue(rv.Elem(), converted)
 }
 
 func convertByType(val any, t reflect.Type) (any, error) {
@@ -153,6 +149,231 @@ func parseJSONFieldName(f reflect.StructField) (string, bool) {
 	return name, false
 }
 
+func assignValue(dst reflect.Value, src any) error {
+	if !dst.IsValid() {
+		return nil
+	}
+
+	for dst.Kind() == reflect.Pointer {
+		if src == nil {
+			dst.Set(reflect.Zero(dst.Type()))
+			return nil
+		}
+		if dst.IsNil() {
+			dst.Set(reflect.New(dst.Type().Elem()))
+		}
+		dst = dst.Elem()
+	}
+
+	if src == nil {
+		dst.Set(reflect.Zero(dst.Type()))
+		return nil
+	}
+
+	switch dst.Kind() {
+	case reflect.Struct:
+		m, ok := src.(map[string]any)
+		if !ok {
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "source is not object for struct field",
+				Expected: dst.Type().String(),
+				Value:    reflect.TypeOf(src).String(),
+			}
+		}
+		return assignStruct(dst, m)
+	case reflect.Slice:
+		arr, ok := src.([]any)
+		if !ok {
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "source is not array for slice field",
+				Expected: dst.Type().String(),
+				Value:    reflect.TypeOf(src).String(),
+			}
+		}
+		s := reflect.MakeSlice(dst.Type(), len(arr), len(arr))
+		for i := range arr {
+			if err := assignValue(s.Index(i), arr[i]); err != nil {
+				return err
+			}
+		}
+		dst.Set(s)
+		return nil
+	case reflect.Array:
+		arr, ok := src.([]any)
+		if !ok {
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "source is not array for array field",
+				Expected: dst.Type().String(),
+				Value:    reflect.TypeOf(src).String(),
+			}
+		}
+		n := dst.Len()
+		if len(arr) < n {
+			n = len(arr)
+		}
+		for i := 0; i < n; i++ {
+			if err := assignValue(dst.Index(i), arr[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	case reflect.Map:
+		m, ok := src.(map[string]any)
+		if !ok {
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "source is not object for map field",
+				Expected: dst.Type().String(),
+				Value:    reflect.TypeOf(src).String(),
+			}
+		}
+		if dst.Type().Key().Kind() != reflect.String {
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "json object only supports string map keys",
+				Expected: dst.Type().String(),
+			}
+		}
+		mv := reflect.MakeMapWithSize(dst.Type(), len(m))
+		for k, v := range m {
+			elem := reflect.New(dst.Type().Elem()).Elem()
+			if err := assignValue(elem, v); err != nil {
+				return err
+			}
+			mv.SetMapIndex(reflect.ValueOf(k), elem)
+		}
+		dst.Set(mv)
+		return nil
+	case reflect.Interface:
+		dst.Set(reflect.ValueOf(src))
+		return nil
+	case reflect.String:
+		s, ok := src.(string)
+		if !ok {
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "source is not string",
+				Expected: "string",
+				Value:    reflect.TypeOf(src).String(),
+			}
+		}
+		dst.SetString(s)
+		return nil
+	case reflect.Bool:
+		switch b := src.(type) {
+		case bool:
+			dst.SetBool(b)
+			return nil
+		case string:
+			parsed, err := strconv.ParseBool(strings.TrimSpace(b))
+			if err != nil {
+				return &Error{
+					Code:     ErrCodeTypeMismatch,
+					Message:  "cannot convert string to bool",
+					Expected: "bool",
+					Value:    b,
+					Cause:    err,
+				}
+			}
+			dst.SetBool(parsed)
+			return nil
+		default:
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "source is not bool",
+				Expected: "bool",
+				Value:    reflect.TypeOf(src).String(),
+			}
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v, err := toIntValue(src, dst.Type().Bits())
+		if err != nil {
+			return err
+		}
+		switch n := v.(type) {
+		case int64:
+			dst.SetInt(n)
+			return nil
+		default:
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "converted value is not int64",
+				Expected: "int64",
+				Value:    reflect.TypeOf(v).String(),
+			}
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		v, err := toUintValue(src, dst.Type().Bits())
+		if err != nil {
+			return err
+		}
+		switch n := v.(type) {
+		case uint64:
+			dst.SetUint(n)
+			return nil
+		default:
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "converted value is not uint64",
+				Expected: "uint64",
+				Value:    reflect.TypeOf(v).String(),
+			}
+		}
+	case reflect.Float32, reflect.Float64:
+		v, err := toFloatValue(src, dst.Type().Bits())
+		if err != nil {
+			return err
+		}
+		switch n := v.(type) {
+		case float64:
+			dst.SetFloat(n)
+			return nil
+		default:
+			return &Error{
+				Code:     ErrCodeTypeMismatch,
+				Message:  "converted value is not float64",
+				Expected: "float64",
+				Value:    reflect.TypeOf(v).String(),
+			}
+		}
+	default:
+		b, err := json.Marshal(src)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(b, dst.Addr().Interface())
+	}
+}
+
+func assignStruct(dst reflect.Value, src map[string]any) error {
+	t := dst.Type()
+	fields := make(map[string]int)
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" && !f.Anonymous {
+			continue
+		}
+		name, skip := parseJSONFieldName(f)
+		if skip || name == "" {
+			continue
+		}
+		fields[name] = i
+	}
+	for key, value := range src {
+		idx, ok := fields[key]
+		if !ok {
+			continue
+		}
+		if err := assignValue(dst.Field(idx), value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func toIntValue(val any, bits int) (any, error) {
 	if bits == 0 {
 		bits = strconv.IntSize
@@ -182,6 +403,8 @@ func toIntValue(val any, bits int) (any, error) {
 			}
 		}
 		return n, nil
+	case float64:
+		return int64(x), nil
 	default:
 		return val, nil
 	}
@@ -216,6 +439,16 @@ func toUintValue(val any, bits int) (any, error) {
 			}
 		}
 		return n, nil
+	case float64:
+		if x < 0 {
+			return nil, &Error{
+				Code:     ErrCodeConvertNumber,
+				Message:  "cannot convert negative float to uint",
+				Expected: "uint",
+				Value:    strconv.FormatFloat(x, 'f', -1, 64),
+			}
+		}
+		return uint64(x), nil
 	default:
 		return val, nil
 	}
@@ -247,6 +480,8 @@ func toFloatValue(val any, bits int) (any, error) {
 			}
 		}
 		return n, nil
+	case float64:
+		return x, nil
 	default:
 		return val, nil
 	}

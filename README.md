@@ -48,3 +48,14 @@ replace github.com/bucketheadv/infra-go => /绝对路径/infra-go
 - `collection.GroupBy(arr, keyFn)`
 - `collection.ArrayToMap(arr, coverExists, keyFn)`
 - `collection.SortedMapTraversal(m, reverse, fn)`
+
+## version
+
+`import "github.com/bucketheadv/infra-go/version"`
+
+用于版本号解析和比较（支持 `1.2`、`1.2.30`、`1.2.3.40`、`1.2.30-beta`），例如：
+
+- `version.Compare("1.2", "1.3.0") // -1`
+- `version.Compare("1.2", "1.1.99") // 1`
+- `version.Compare("1.2.3.40", "1.2.3.5") // 1`
+- `version.Compare("1.2.30-beta", "1.2.30") // 1`

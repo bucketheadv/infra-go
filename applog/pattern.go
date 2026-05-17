@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/bucketheadv/infra-go/timefmt"
 )
 
 // defaultLogPattern 与原先 text 布局信息项接近；时间格式为 Go 参考时间布局。
@@ -157,7 +159,7 @@ func resolvePatternToken(r *Record, callerMax int, token, layoutMod string) (fie
 	case "d", "date":
 		layout := layoutMod
 		if layout == "" {
-			layout = "2006-01-02T15:04:05.000"
+			layout = timefmt.DateTimeMillisISO
 		}
 		return "date", r.Time.Format(layout)
 	case "level", "p":

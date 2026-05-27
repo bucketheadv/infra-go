@@ -5,6 +5,5 @@
 // 能力概览：
 //   - 字符串转基础类型：StringTo；
 //   - 字符串切片批量转换：ArrayElemTo；
-//   - 字符串空值判断：IsEmpty / IsBlank；
 //   - 通用二元组与三元组：Pair / Triple。
 package basic

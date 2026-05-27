@@ -1,4 +1,4 @@
-package applog
+package logx
 
 import (
 	"bytes"
@@ -23,7 +23,7 @@ import (
 // NameGinWriter 用于 InstallGinWriters 写入的 logger 名（若 YAML 未配置则回退 root）。
 const NameGinWriter = "gin"
 
-// GinLoggerConfig 配置与 gin.LoggerWithConfig 对齐的访问日志（输出走 applog，不再写 os.Stdout）。
+// GinLoggerConfig 配置与 gin.LoggerWithConfig 对齐的访问日志（输出走 logx，不再写 os.Stdout）。
 type GinLoggerConfig struct {
 	// LoggerName 命名 logger，默认 NameAccess（建议在 YAML 配置 loggers.access）。
 	LoggerName string
@@ -33,19 +33,19 @@ type GinLoggerConfig struct {
 	SkipQueryString bool
 }
 
-// GinRecoveryConfig 配置 panic 恢复；行为对齐 gin.Recovery，日志走 applog。
+// GinRecoveryConfig 配置 panic 恢复；行为对齐 gin.Recovery，日志走 logx。
 type GinRecoveryConfig struct {
 	// LoggerName 默认 NameApp。
 	LoggerName string
 }
 
-// GinWritersConfig 用于 InstallGinWriters，将 gin 包内直接写入 DefaultWriter / DefaultErrorWriter 的内容导入 applog。
+// GinWritersConfig 用于 InstallGinWriters，将 gin 包内直接写入 DefaultWriter / DefaultErrorWriter 的内容导入 logx。
 type GinWritersConfig struct {
 	// OutLoggerName、ErrLoggerName 默认均为 NameGinWriter。
 	OutLoggerName, ErrLoggerName string
 }
 
-// GinLogger 返回等价于 gin.Logger() 的中间件，但每条访问日志经 applog 输出（无 ANSI；级别按 HTTP 状态码：5xx error、4xx warn、其它 info）。
+// GinLogger 返回等价于 gin.Logger() 的中间件，但每条访问日志经 logx 输出（无 ANSI；级别按 HTTP 状态码：5xx error、4xx warn、其它 info）。
 func GinLogger(cfg GinLoggerConfig) gin.HandlerFunc {
 	name := cfg.LoggerName
 	if name == "" {
@@ -65,7 +65,7 @@ func GinLogger(cfg GinLoggerConfig) gin.HandlerFunc {
 	})
 }
 
-// GinRecovery 返回等价于 gin.Recovery() 的中间件；panic 与断连场景写入 applog（含 Authorization 脱敏的请求摘要；Debug 模式下附加请求 dump）。
+// GinRecovery 返回等价于 gin.Recovery() 的中间件；panic 与断连场景写入 logx（含 Authorization 脱敏的请求摘要；Debug 模式下附加请求 dump）。
 func GinRecovery(cfg GinRecoveryConfig) gin.HandlerFunc {
 	name := cfg.LoggerName
 	if name == "" {
@@ -106,7 +106,7 @@ func GinRecovery(cfg GinRecoveryConfig) gin.HandlerFunc {
 	}
 }
 
-// InstallGinWriters 将 gin.DefaultWriter、gin.DefaultErrorWriter 接到 applog（按行、去掉 ANSI）。
+// InstallGinWriters 将 gin.DefaultWriter、gin.DefaultErrorWriter 接到 logx（按行、去掉 ANSI）。
 // 用于兼容 gin 在 Engine 之外的输出（如 debugPrint 等）。须在 MustLoad 之后调用。
 func InstallGinWriters(cfg GinWritersConfig) {
 	on := cfg.OutLoggerName
@@ -222,7 +222,7 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// logGinWriterLine 将 gin DefaultWriter 的一行写入 applog；file 为绝对路径以便跳转。
+// logGinWriterLine 将 gin DefaultWriter 的一行写入 logx；file 为绝对路径以便跳转。
 func logGinWriterLine(loggerName string, lv Level, msg string) {
 	_, file, line, ok := runtime.Caller(1)
 	if !ok {

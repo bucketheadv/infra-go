@@ -2,11 +2,11 @@
 
 可复用的 Go 基础库（独立于业务项目）。
 
-## applog
+## logx
 
-`import "github.com/bucketheadv/infra-go/applog"`
+`import "github.com/bucketheadv/infra-go/logx"`
 
-完整用法见 **[docs/applog.md](docs/applog.md)**。仓库根目录 **[applog.example.yaml](applog.example.yaml)** 为配置示例。
+完整用法见 **[docs/logx.md](docs/logx.md)**。仓库根目录 **[logx.example.yaml](logx.example.yaml)** 为配置示例。
 
 在业务仓库的 `go.mod` 中发布前可使用本地替换：
 

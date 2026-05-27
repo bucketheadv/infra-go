@@ -1,4 +1,4 @@
-package applog
+package logx
 
 import (
 	"fmt"
@@ -101,7 +101,7 @@ func Load(path string) error {
 // MustLoad 等价于 Load，失败时 panic。
 func MustLoad(path string) {
 	if err := Load(path); err != nil {
-		panic("applog: " + err.Error())
+		panic("logx: " + err.Error())
 	}
 }
 

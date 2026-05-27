@@ -1,4 +1,4 @@
-# 示例：复制为 applog.yaml 并由 applog.MustLoad 加载
+# 示例：复制为 logx.yaml 并由 logx.MustLoad 加载
 callerFileMaxLen: 96
 
 appenders:

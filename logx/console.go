@@ -1,4 +1,4 @@
-package applog
+package logx
 
 import (
 	"io"

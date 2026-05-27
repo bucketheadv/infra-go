@@ -1,4 +1,4 @@
-package applog
+package logx
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func (l *Logger) log(ctx context.Context, lv Level, format string, args ...any) 
 	if l == nil || !l.enabled(lv) {
 		return
 	}
-	file, line := getCallerBeyondApplog()
+	file, line := getCallerBeyondLogx()
 	msg := format
 	if len(args) > 0 {
 		msg = fmt.Sprintf(format, args...)

@@ -1,6 +1,6 @@
-# applog 使用说明
+# logx 使用说明
 
-`applog` 提供基于 YAML 的应用日志：多 logger、类 Spring 的 `pattern` 与 `%clr` 着色、按行滚动与保留天数、以及 GORM SQL 桥接。
+`logx` 提供基于 YAML 的应用日志：多 logger、类 Spring 的 `pattern` 与 `%clr` 着色、按行滚动与保留天数、以及 GORM SQL 桥接。
 
 ## 1. 安装
 
@@ -19,27 +19,27 @@ replace github.com/bucketheadv/infra-go => /path/to/infra-go
 代码中导入：
 
 ```go
-import "github.com/bucketheadv/infra-go/applog"
+import "github.com/bucketheadv/infra-go/logx"
 ```
 
 执行 `go mod tidy`。
 
 与 `github.com/bucketheadv/infra-market/...` 等同文件并列时，按 **import 路径字典序**：`infra-go` 在 `infra-market` 之前；第三方与当前模块之间空一行后，块内同样排序。可用 **`goimports -w .`** 自动整理。
 
-> 若你 fork 后修改了模块路径，需与 `infra-go/go.mod` 的 `module` 及库内 `applog/const.go` 中的前缀保持一致。
+> 若你 fork 后修改了模块路径，需与 `infra-go/go.mod` 的 `module` 及库内 `logx/const.go` 中的前缀保持一致。
 
 ## 2. 初始化
 
 在进程早期（读取配置之后）加载 YAML，失败时 `MustLoad` 会 panic：
 
 ```go
-applog.MustLoad("config/applog.yaml")
+logx.MustLoad("config/logx.yaml")
 ```
 
 或使用 `Load` 自行处理错误：
 
 ```go
-if err := applog.Load("config/applog.yaml"); err != nil {
+if err := logx.Load("config/logx.yaml"); err != nil {
     log.Fatal(err)
 }
 ```
@@ -49,9 +49,9 @@ if err := applog.Load("config/applog.yaml"); err != nil {
 ### 2.1 配置文件路径有什么要求？怎么「导入」？
 
 - **没有特殊格式要求**：传入 `Load` / `MustLoad` 的是普通**文件路径字符串**，库内部用 `os.ReadFile` 读取；路径合法且进程有读权限即可。
-- **相对路径**：相对于进程启动时的 **当前工作目录（cwd）**（你在哪个目录执行 `./app`，或 IDE「工作目录」填的是什么，就相对于那里）。例如 `config/applog.yaml` 表示 `cwd/config/applog.yaml`。
-- **绝对路径**：始终推荐在部署/容器里使用，例如 `/etc/myapp/applog.yaml`，避免随 cwd 变化找不到文件。
-- **不是 Go 的 `import`**：YAML 不会在编译期打进包名；「导入配置」就是在启动早期调用一次 `applog.MustLoad(path)`（或 `Load`）。若要用 `//go:embed` 把 YAML 嵌进二进制，需自行把内容落到可读路径，或封装一层在启动时 `os.WriteFile` 临时文件再 `Load`（本库当前仅提供按路径加载）。
+- **相对路径**：相对于进程启动时的 **当前工作目录（cwd）**（你在哪个目录执行 `./app`，或 IDE「工作目录」填的是什么，就相对于那里）。例如 `config/logx.yaml` 表示 `cwd/config/logx.yaml`。
+- **绝对路径**：始终推荐在部署/容器里使用，例如 `/etc/myapp/logx.yaml`，避免随 cwd 变化找不到文件。
+- **不是 Go 的 `import`**：YAML 不会在编译期打进包名；「导入配置」就是在启动早期调用一次 `logx.MustLoad(path)`（或 `Load`）。若要用 `//go:embed` 把 YAML 嵌进二进制，需自行把内容落到可读路径，或封装一层在启动时 `os.WriteFile` 临时文件再 `Load`（本库当前仅提供按路径加载）。
 - **YAML 里的 `rollingFile.path`**：同样是操作系统路径；写相对路径时也是相对于 **cwd**，与配置文件本身在哪无关。需要日志落在可执行文件旁时，应用代码里应用 `filepath.Join` 拼出绝对路径写进配置，或在业务层生成 YAML / 多套配置。
 
 推荐写法示例（需 `import ("os"; "path/filepath")`，配置目录由你统一约定）：
@@ -61,12 +61,12 @@ cfgDir := os.Getenv("APP_CONFIG_DIR") // 或 flag、spring 配置等
 if cfgDir == "" {
     cfgDir = "config"
 }
-applog.MustLoad(filepath.Join(cfgDir, "applog.yaml"))
+logx.MustLoad(filepath.Join(cfgDir, "logx.yaml"))
 ```
 
 ## 3. 配置文件
 
-可参考仓库根目录的 **`applog.example.yaml`**，复制为业务项目中的路径（例如 `config/applog.yaml`）。
+可参考仓库根目录的 **`logx.example.yaml`**，复制为业务项目中的路径（例如 `config/logx.yaml`）。
 
 主要结构：
 
@@ -105,8 +105,8 @@ Appender 类型：
 按**命名 logger**（与 YAML 里 `loggers` 的 key 对应）：
 
 ```go
-applog.Infof(ctx, applog.NameApp, "hello %s", name)
-applog.Errorf(ctx, applog.NameApp, "err: %v", err)
+logx.Infof(ctx, logx.NameApp, "hello %s", name)
+logx.Errorf(ctx, logx.NameApp, "err: %v", err)
 ```
 
 预置名称常量：`NameRoot`、`NameApp`、`NameAccess`、`NameGorm`；Gin 旁路输出还可使用 `NameGinWriter`（`InstallGinWriters` 默认 logger 名，建议在 YAML 中配置 `loggers.gin`）。
@@ -114,54 +114,54 @@ applog.Errorf(ctx, applog.NameApp, "err: %v", err)
 也可先取实例再调方法：
 
 ```go
-applog.Get("app").Infof(ctx, "msg")
+logx.Get("app").Infof(ctx, "msg")
 ```
 
 **指定调用位置**（例如由其它框架传入 file/line）：
 
 ```go
-applog.LogFrom(ctx, "app", applog.LevelInfo, file, line, msg)
+logx.LogFrom(ctx, "app", logx.LevelInfo, file, line, msg)
 ```
 
 进程退出前建议关闭滚动文件等：
 
 ```go
-applog.Close()
+logx.Close()
 ```
 
 ## 6. Gin
 
-与 `gin.Default()` 中的访问日志、Recovery 及写入 `DefaultWriter` / `DefaultErrorWriter` 的行为对齐，输出统一走 applog（无 ANSI；访问行按状态码映射级别：5xx → error，4xx → warn，其它 → info）。
+与 `gin.Default()` 中的访问日志、Recovery 及写入 `DefaultWriter` / `DefaultErrorWriter` 的行为对齐，输出统一走 logx（无 ANSI；访问行按状态码映射级别：5xx → error，4xx → warn，其它 → info）。
 
-访问日志里的 **`%fileLine`**：固定为 **`applog/gin.go`（及 writer 桥接处）的绝对路径 + 行号**（`LogFrom` 对绝对路径不再做缩短，便于终端/IDE 按路径跳转）。请求结束后栈上多为 net/http/gin，无法稳定映射到业务 handler。
+访问日志里的 **`%fileLine`**：固定为 **`logx/gin.go`（及 writer 桥接处）的绝对路径 + 行号**（`LogFrom` 对绝对路径不再做缩短，便于终端/IDE 按路径跳转）。请求结束后栈上多为 net/http/gin，无法稳定映射到业务 handler。
 
 **中间件**（顺序与 `gin.Default()` 一致：先 `GinLogger` 再 `GinRecovery`）：
 
 ```go
 engine := gin.New()
-engine.Use(applog.GinLogger(applog.GinLoggerConfig{
-    // LoggerName: applog.NameAccess, // 默认即为 access
+engine.Use(logx.GinLogger(logx.GinLoggerConfig{
+    // LoggerName: logx.NameAccess, // 默认即为 access
     // SkipPaths:  []string{"/health"},
 }))
-engine.Use(applog.GinRecovery(applog.GinRecoveryConfig{
-    // LoggerName: applog.NameApp, // 默认即为 app
+engine.Use(logx.GinRecovery(logx.GinRecoveryConfig{
+    // LoggerName: logx.NameApp, // 默认即为 app
 }))
 ```
 
 **框架杂项输出**（如 debug 路由等内部 `fmt.Fprintf(gin.DefaultWriter, ...)`）：在 `MustLoad` 之后调用一次：
 
 ```go
-applog.InstallGinWriters(applog.GinWritersConfig{
-    // OutLoggerName: applog.NameGinWriter,
-    // ErrLoggerName: applog.NameGinWriter,
+logx.InstallGinWriters(logx.GinWritersConfig{
+    // OutLoggerName: logx.NameGinWriter,
+    // ErrLoggerName: logx.NameGinWriter,
 })
 ```
 
-建议在 YAML 中为 `access`、`app`、`gin` 分别配置 `loggers`（示例见仓库 `applog.example.yaml`）。
+建议在 YAML 中为 `access`、`app`、`gin` 分别配置 `loggers`（示例见仓库 `logx.example.yaml`）。
 
 ## 7. GORM
 
-将 `*gorm.DB` 的 logger 换成 `applog`（需在 YAML 中配置 `loggers.gorm` 或使用 root 的 appender）：
+将 `*gorm.DB` 的 logger 换成 `logx`（需在 YAML 中配置 `loggers.gorm` 或使用 root 的 appender）：
 
 ```go
 import (
@@ -169,20 +169,20 @@ import (
     // ...
 )
 
-db.Config.Logger = applog.NewGormLogger(applog.GormLoggerConfig{
-    LoggerName:                applog.NameGorm,
+db.Config.Logger = logx.NewGormLogger(logx.GormLoggerConfig{
+    LoggerName:                logx.NameGorm,
     SlowThreshold:             200 * time.Millisecond,
     IgnoreRecordNotFoundError: true,
 }).LogMode(glog.Info)
 ```
 
 - GORM 的 `LogMode`（如 `Info` / `Warn` / `Error`）控制**是否以及何种 SQL**会回调到本库。
-- YAML 里 **`loggers.gorm.level`** 控制 applog **是否输出**对应级别；两者需一起考虑（例如要看普通成功 SQL，GORM 一般为 `Info`，applog 里 `gorm` 也应允许 `info`）。
+- YAML 里 **`loggers.gorm.level`** 控制 logx **是否输出**对应级别；两者需一起考虑（例如要看普通成功 SQL，GORM 一般为 `Info`，logx 里 `gorm` 也应允许 `info`）。
 
 SQL 会合并为单行：`[耗时ms] [rows:n] SQL...`，`file:line` 为业务里发起查询的栈位置（已跳过 GORM 与本库）。
 
 ## 8. 注意事项
 
 - 配置文件与 `rollingFile.path` 的解析规则见 **2.1 节**。
-- 与 **go-spring** 等框架并存时，框架自带的 `log.yaml` 与 **`applog` 的 YAML** 是两套配置，互不影响。
+- 与 **go-spring** 等框架并存时，框架自带的 `log.yaml` 与 **`logx` 的 YAML** 是两套配置，互不影响。
 - 发布本库后删除业务项目 `go.mod` 中的 `replace`，改用 `go get github.com/bucketheadv/infra-go@vx.y.z`。

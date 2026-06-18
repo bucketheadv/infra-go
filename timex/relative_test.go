@@ -1,4 +1,4 @@
-package timefmt
+package timex
 
 import (
 	"testing"
@@ -135,12 +135,13 @@ func TestRelativeFormatterRegisterAndUnregister(t *testing.T) {
 	})
 
 	const langFR Language = "fr"
-	formatter.Register(langFR, localeWithPrefixPlural(
+	formatter.Register(langFR, localeWithPlural(
 		"à l'instant", "dans quelques secondes",
 		"il y a", "dans",
 		map[RelativePeriod][2]string{
 			PeriodMinute: {"minute", "minutes"},
 		},
+		false,
 	))
 
 	got := formatter.FormatRelativeSince(base.Add(-5*time.Minute), base, langFR)
@@ -159,12 +160,13 @@ func TestRegisterRelativeLocaleOnDefaultFormatter(t *testing.T) {
 	base := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
 	const langFR Language = "fr"
 
-	RegisterRelativeLocale(langFR, localeWithPrefixPlural(
+	RegisterRelativeLocale(langFR, localeWithPlural(
 		"à l'instant", "dans quelques secondes",
 		"il y a", "dans",
 		map[RelativePeriod][2]string{
 			PeriodMinute: {"minute", "minutes"},
 		},
+		false,
 	))
 	t.Cleanup(func() {
 		UnregisterRelativeLocale(langFR)

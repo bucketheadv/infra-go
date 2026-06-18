@@ -1,12 +1,140 @@
-package collection
+package collectionx
 
 import (
+	"reflect"
 	"testing"
 )
 
-// TestPartition 覆盖分片的常见输入场景与边界行为。
+func TestIsEmpty(t *testing.T) {
+	t.Run("slice", func(t *testing.T) {
+		var nilSlice []int
+		if !IsEmpty(nilSlice) {
+			t.Fatalf("expected true for nil slice")
+		}
+		if !IsEmpty([]int{}) {
+			t.Fatalf("expected true for empty slice")
+		}
+		if IsEmpty([]int{1}) {
+			t.Fatalf("expected false for non-empty slice")
+		}
+	})
+
+	t.Run("slice pointer", func(t *testing.T) {
+		var nilPtr *[]int
+		if !IsEmpty(nilPtr) {
+			t.Fatalf("expected true for nil pointer")
+		}
+		var data []int
+		if !IsEmpty(&data) {
+			t.Fatalf("expected true for pointer to nil slice")
+		}
+		data = []int{}
+		if !IsEmpty(&data) {
+			t.Fatalf("expected true for pointer to empty slice")
+		}
+		data = []int{1}
+		if IsEmpty(&data) {
+			t.Fatalf("expected false for pointer to non-empty slice")
+		}
+	})
+
+	t.Run("map", func(t *testing.T) {
+		var nilMap map[string]int
+		if !IsEmpty(nilMap) {
+			t.Fatalf("expected true for nil map")
+		}
+		if !IsEmpty(map[string]int{}) {
+			t.Fatalf("expected true for empty map")
+		}
+		if IsEmpty(map[string]int{"a": 1}) {
+			t.Fatalf("expected false for non-empty map")
+		}
+	})
+
+	t.Run("map pointer", func(t *testing.T) {
+		var nilPtr *map[string]int
+		if !IsEmpty(nilPtr) {
+			t.Fatalf("expected true for nil pointer")
+		}
+		var data map[string]int
+		if !IsEmpty(&data) {
+			t.Fatalf("expected true for pointer to nil map")
+		}
+		data = map[string]int{}
+		if !IsEmpty(&data) {
+			t.Fatalf("expected true for pointer to empty map")
+		}
+		data = map[string]int{"a": 1}
+		if IsEmpty(&data) {
+			t.Fatalf("expected false for pointer to non-empty map")
+		}
+	})
+
+	t.Run("unsupported type", func(t *testing.T) {
+		if IsEmpty("hello") {
+			t.Fatalf("expected false for string")
+		}
+		if IsEmpty(0) {
+			t.Fatalf("expected false for int")
+		}
+	})
+}
+
+func TestMapFilterUnique(t *testing.T) {
+	arr := []int{1, 2, 3, 4, 5}
+	got := Map(arr, func(v int) int { return v * 2 })
+	want := []int{2, 4, 6, 8, 10}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Map() = %v, want %v", got, want)
+	}
+
+	filtered := Filter(arr, func(v int) bool { return v%2 == 1 })
+	if !reflect.DeepEqual(filtered, []int{1, 3, 5}) {
+		t.Fatalf("Filter() = %v", filtered)
+	}
+
+	unique := Unique([]int{1, 2, 2, 3, 1})
+	if !reflect.DeepEqual(unique, []int{1, 2, 3}) {
+		t.Fatalf("Unique() = %v", unique)
+	}
+}
+
+func TestContainsFindEverySome(t *testing.T) {
+	arr := []int{1, 2, 3}
+	if !Contains(arr, 2) || Contains(arr, 9) {
+		t.Fatalf("Contains() mismatch")
+	}
+
+	v, ok := Find(arr, func(x int) bool { return x > 2 })
+	if !ok || v != 3 {
+		t.Fatalf("Find() = (%v, %v)", v, ok)
+	}
+
+	if !Every(arr, func(x int) bool { return x > 0 }) {
+		t.Fatalf("Every() should be true")
+	}
+	if Every(arr, func(x int) bool { return x%2 == 0 }) {
+		t.Fatalf("Every() should be false")
+	}
+	if !Some(arr, func(x int) bool { return x == 2 }) {
+		t.Fatalf("Some() should be true")
+	}
+}
+
+func TestReverseFlatten(t *testing.T) {
+	arr := []int{1, 2, 3}
+	Reverse(arr)
+	if !reflect.DeepEqual(arr, []int{3, 2, 1}) {
+		t.Fatalf("Reverse() = %v", arr)
+	}
+
+	flat := Flatten([][]int{{1, 2}, {}, {3}})
+	if !reflect.DeepEqual(flat, []int{1, 2, 3}) {
+		t.Fatalf("Flatten() = %v", flat)
+	}
+}
+
 func TestPartition(t *testing.T) {
-	// 表驱动：验证空输入、常规分片以及 size 特殊值。
 	tests := []struct {
 		name string
 		arr  []int
@@ -47,15 +175,13 @@ func TestPartition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 核对二维切片结构与值是否完全一致。
 			got := Partition(tt.arr, tt.size)
 			assert2DIntEqual(t, got, tt.want)
 		})
 	}
 }
 
-// TestPartitionPanicWhenSizeNonPositive 验证 size 非法时的当前行为。
-func TestPartitionPanicWhenSizeNonPositive(t *testing.T) {
+func TestPartitionSizeNonPositive(t *testing.T) {
 	t.Run("size=0 returns empty", func(t *testing.T) {
 		got := Partition([]int{1, 2, 3}, 0)
 		if len(got) != 0 {
@@ -71,9 +197,7 @@ func TestPartitionPanicWhenSizeNonPositive(t *testing.T) {
 	})
 }
 
-// TestGroupBy 验证不同类型元素按 key 分组后的结果与顺序。
 func TestGroupBy(t *testing.T) {
-	// 数字按奇偶分组。
 	arr := []int{1, 2, 3, 4, 5}
 	got := GroupBy(arr, func(v int) int { return v % 2 })
 	want := map[int][]int{
@@ -82,7 +206,6 @@ func TestGroupBy(t *testing.T) {
 	}
 	assertMapSlicesEqual(t, got, want)
 
-	// 字符串按自身值分组（含重复值）。
 	arr2 := []string{"apple", "banana", "cherry", "apple", "banana"}
 	got2 := GroupBy(arr2, func(v string) string { return v })
 	want2 := map[string][]string{
@@ -92,7 +215,6 @@ func TestGroupBy(t *testing.T) {
 	}
 	assertMapSlicesEqual(t, got2, want2)
 
-	// 结构体按字段分组。
 	arr3 := []struct {
 		id   int
 		name string
@@ -126,7 +248,6 @@ func TestGroupBy(t *testing.T) {
 	assertStructGroupEqual(t, got3, want3)
 }
 
-// TestArrayToMap 验证同 key 保留首值/覆盖末值两种策略。
 func TestArrayToMap(t *testing.T) {
 	type user struct {
 		ID   int
@@ -140,7 +261,6 @@ func TestArrayToMap(t *testing.T) {
 		{ID: 3, Name: "x"},
 	}
 
-	// coverExists=false：保留首次出现的元素。
 	gotKeepFirst := ArrayToMap(users, false, func(u user) int { return u.ID })
 	wantKeepFirst := map[int]user{
 		1: {ID: 1, Name: "first"},
@@ -149,7 +269,6 @@ func TestArrayToMap(t *testing.T) {
 	}
 	assertUserMapEqual(t, gotKeepFirst, wantKeepFirst)
 
-	// coverExists=true：后出现元素覆盖之前的值。
 	gotCover := ArrayToMap(users, true, func(u user) int { return u.ID })
 	wantCover := map[int]user{
 		1: {ID: 1, Name: "first"},
@@ -158,14 +277,12 @@ func TestArrayToMap(t *testing.T) {
 	}
 	assertUserMapEqual(t, gotCover, wantCover)
 
-	// 空输入返回空 map。
 	empty := ArrayToMap([]user{}, false, func(u user) int { return u.ID })
 	if len(empty) != 0 {
 		t.Fatalf("expected empty map, got len=%d", len(empty))
 	}
 }
 
-// assert2DIntEqual 校验二维 int 切片的结构和值完全一致。
 func assert2DIntEqual(t *testing.T, got, want [][]int) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -183,7 +300,6 @@ func assert2DIntEqual(t *testing.T, got, want [][]int) {
 	}
 }
 
-// assertMapSlicesEqual 校验 map[key][]value 的键集合与各组顺序内容。
 func assertMapSlicesEqual[T comparable](t *testing.T, got, want map[T][]T) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -205,7 +321,6 @@ func assertMapSlicesEqual[T comparable](t *testing.T, got, want map[T][]T) {
 	}
 }
 
-// assertStructGroupEqual 校验结构体分组结果。
 func assertStructGroupEqual(t *testing.T, got, want map[int][]struct {
 	id   int
 	name string
@@ -230,7 +345,6 @@ func assertStructGroupEqual(t *testing.T, got, want map[int][]struct {
 	}
 }
 
-// assertUserMapEqual 校验 map[int]V 的键值一致性。
 func assertUserMapEqual[V comparable](t *testing.T, got, want map[int]V) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -246,4 +360,3 @@ func assertUserMapEqual[V comparable](t *testing.T, got, want map[int]V) {
 		}
 	}
 }
-

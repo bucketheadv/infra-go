@@ -1,6 +1,7 @@
-package timefmt
+package timex
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -30,8 +31,8 @@ const (
 
 // RelativeLocale 单种语言的相对时间配置。
 type RelativeLocale struct {
-	JustNow       string
-	InFewSeconds  string
+	JustNow        string
+	InFewSeconds   string
 	FormatInterval func(count int64, period RelativePeriod, isFuture bool) string
 }
 
@@ -181,4 +182,121 @@ func FormatRelative(t time.Time, lang Language) string {
 // FormatRelativeSince 使用默认格式化器，以 base 时间为基准。
 func FormatRelativeSince(t, base time.Time, lang Language) string {
 	return defaultRelativeFormatter.FormatRelativeSince(t, base, lang)
+}
+
+func builtinRelativeLocales() map[Language]RelativeLocale {
+	return map[Language]RelativeLocale{
+		LangZH: localeWithAffix("刚刚", "几秒后", "前", "后", map[RelativePeriod]string{
+			PeriodMinute: "分钟",
+			PeriodHour:   "小时",
+			PeriodDay:    "天",
+			PeriodMonth:  "个月",
+			PeriodYear:   "年",
+		}),
+		LangEN: localeWithPlural(
+			"just now", "in a few seconds",
+			"ago", "in",
+			map[RelativePeriod][2]string{
+				PeriodMinute: {"minute", "minutes"},
+				PeriodHour:   {"hour", "hours"},
+				PeriodDay:    {"day", "days"},
+				PeriodMonth:  {"month", "months"},
+				PeriodYear:   {"year", "years"},
+			},
+			true,
+		),
+		LangJA: localeWithAffix("たった今", "数秒後", "前", "後", map[RelativePeriod]string{
+			PeriodMinute: "分",
+			PeriodHour:   "時間",
+			PeriodDay:    "日",
+			PeriodMonth:  "ヶ月",
+			PeriodYear:   "年",
+		}),
+		LangKO: localeWithAffix("방금 전", "몇 초 후", " 전", " 후", map[RelativePeriod]string{
+			PeriodMinute: "분",
+			PeriodHour:   "시간",
+			PeriodDay:    "일",
+			PeriodMonth:  "개월",
+			PeriodYear:   "년",
+		}),
+		LangES: localeWithPlural(
+			"justo ahora", "en unos segundos",
+			"hace", "en",
+			map[RelativePeriod][2]string{
+				PeriodMinute: {"minuto", "minutos"},
+				PeriodHour:   {"hora", "horas"},
+				PeriodDay:    {"día", "días"},
+				PeriodMonth:  {"mes", "meses"},
+				PeriodYear:   {"año", "años"},
+			},
+			false,
+		),
+		LangDE: localeGerman(),
+	}
+}
+
+func localeWithAffix(justNow, inFewSec, pastAffix, futureAffix string, units map[RelativePeriod]string) RelativeLocale {
+	return RelativeLocale{
+		JustNow:      justNow,
+		InFewSeconds: inFewSec,
+		FormatInterval: func(count int64, period RelativePeriod, isFuture bool) string {
+			unit := units[period]
+			if isFuture {
+				return fmt.Sprintf("%d%s%s", count, unit, futureAffix)
+			}
+			return fmt.Sprintf("%d%s%s", count, unit, pastAffix)
+		},
+	}
+}
+
+// localeWithPlural 构建带复数单位的相对时间文案。
+// spaced=true 时 past 为 "5 minutes ago"、future 为 "in 5 minutes"；
+// spaced=false 时 past/future 均为 "hace 5 minutos" / "en 5 minutos" 风格。
+func localeWithPlural(justNow, inFewSec, pastWord, futureWord string, units map[RelativePeriod][2]string, spaced bool) RelativeLocale {
+	return RelativeLocale{
+		JustNow:      justNow,
+		InFewSeconds: inFewSec,
+		FormatInterval: func(count int64, period RelativePeriod, isFuture bool) string {
+			unit := pluralUnit(units[period], count)
+			if isFuture {
+				return fmt.Sprintf("%s %d %s", futureWord, count, unit)
+			}
+			if spaced {
+				return fmt.Sprintf("%d %s %s", count, unit, pastWord)
+			}
+			return fmt.Sprintf("%s %d %s", pastWord, count, unit)
+		},
+	}
+}
+
+func localeGerman() RelativeLocale {
+	units := map[RelativePeriod][2]string{
+		PeriodMinute: {"Minute", "Minuten"},
+		PeriodHour:   {"Stunde", "Stunden"},
+		PeriodDay:    {"Tag", "Tagen"},
+		PeriodMonth:  {"Monat", "Monaten"},
+		PeriodYear:   {"Jahr", "Jahren"},
+	}
+	return RelativeLocale{
+		JustNow:      "gerade eben",
+		InFewSeconds: "in wenigen Sekunden",
+		FormatInterval: func(count int64, period RelativePeriod, isFuture bool) string {
+			pair := units[period]
+			unit := pair[0]
+			if count > 1 {
+				unit = pair[1]
+			}
+			if isFuture {
+				return fmt.Sprintf("in %d %s", count, unit)
+			}
+			return fmt.Sprintf("vor %d %s", count, unit)
+		},
+	}
+}
+
+func pluralUnit(pair [2]string, count int64) string {
+	if count == 1 {
+		return pair[0]
+	}
+	return pair[1]
 }

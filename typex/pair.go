@@ -1,4 +1,4 @@
-package basic
+package typex
 
 // Pair 表示左右两个值组成的二元组。
 type Pair[T any, R any] struct {

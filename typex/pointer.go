@@ -1,4 +1,4 @@
-package basic
+package typex
 
 // Ptr 将任意值转换为对应类型的指针。
 //

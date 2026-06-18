@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bucketheadv/infra-go/timefmt"
+	"github.com/bucketheadv/infra-go/timex"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -851,8 +851,8 @@ func assignFromString(dst reflect.Value, raw string) error {
 func parseTime(raw string) (time.Time, error) {
 	layouts := []string{
 		time.RFC3339,
-		timefmt.DateTimeCommon,
-		timefmt.DateOnly,
+		timex.DateTimeCommon,
+		timex.DateOnly,
 	}
 	for _, l := range layouts {
 		if t, err := time.Parse(l, raw); err == nil {

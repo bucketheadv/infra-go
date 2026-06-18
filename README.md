@@ -17,17 +17,19 @@ replace github.com/bucketheadv/infra-go => /绝对路径/infra-go
 
 发布到 GitHub 后删除 `replace` 行并 `go get` 指定 tag 即可。
 
-## timefmt
+## timex
 
-`import "github.com/bucketheadv/infra-go/timefmt"`
+`import "github.com/bucketheadv/infra-go/timex"`
 
 用于通用日期时间布局常量和相对时间格式化，例如：
 
-- `timefmt.DateTimeMillisISO`
-- `timefmt.FormatRelative(t, timefmt.LangZH)` // "5分钟前"
-- `timefmt.FormatRelative(t, timefmt.LangEN)` // "5 minutes ago"
-- `timefmt.RegisterRelativeLocale("fr", locale)` // 动态注册新语言
-- `timefmt.DefaultRelativeFormatter()` // 获取可配置的格式化器
+- `timex.DateTimeMillisISO`
+- `timex.ParseAny("2026-05-17")`
+- `timex.StartOfDay(t)` / `timex.Between(t, start, end)`
+- `timex.FormatRelative(t, timex.LangZH)` // "5分钟前"
+- `timex.FormatRelative(t, timex.LangEN)` // "5 minutes ago"
+- `timex.RegisterRelativeLocale("fr", locale)` // 动态注册新语言
+- `timex.DefaultRelativeFormatter()` // 获取可配置的格式化器
 
 ## timezone
 
@@ -39,38 +41,40 @@ replace github.com/bucketheadv/infra-go => /绝对路径/infra-go
 - `timezone.WithZone(t, zone)`
 - `timezone.WithZoneRetainFields(t, zone)`
 
-## basic
+## typex
 
-`import "github.com/bucketheadv/infra-go/basic"`
+`import "github.com/bucketheadv/infra-go/typex"`
 
 用于基础类型转换与通用元组，例如：
 
-- `basic.StringTo[int]("123")`
-- `basic.ArrayElemTo[bool]([]string{"true","false"})`
-- `basic.Pair[int,string]`
-- `basic.Triple[int,string,bool]`
+- `typex.StringTo[int]("123")`
+- `typex.Ptr(123)` / `typex.Deref(ptr, 0)` / `typex.Coalesce(0, 3)`
+- `typex.Pair[int,string]`
+- `typex.Triple[int,string,bool]`
 
-## collection
+## collectionx
 
-`import "github.com/bucketheadv/infra-go/collection"`
+`import "github.com/bucketheadv/infra-go/collectionx"`
 
 用于常见集合处理，例如：
 
-- `collection.Partition(arr, size)`
-- `collection.GroupBy(arr, keyFn)`
-- `collection.ArrayToMap(arr, coverExists, keyFn)`
-- `collection.SortedMapTraversal(m, reverse, fn)`
+- `collectionx.Partition(arr, size)`
+- `collectionx.Map(arr, fn)` / `collectionx.Filter(arr, fn)` / `collectionx.Unique(arr)`
+- `collectionx.Keys(m)` / `collectionx.MergeMaps(m1, m2)`
+- `collectionx.GroupBy(arr, keyFn)`
+- `collectionx.ArrayToMap(arr, coverExists, keyFn)`
+- `collectionx.SortedMapTraversal(m, reverse, fn)`
 
-## version
+## versionx
 
-`import "github.com/bucketheadv/infra-go/version"`
+`import "github.com/bucketheadv/infra-go/versionx"`
 
 用于版本号解析和比较（支持 `1.2`、`1.2.30`、`1.2.3.40`、`1.2.30-beta`），例如：
 
-- `version.Compare("1.2", "1.3.0") // -1`
-- `version.Compare("1.2", "1.1.99") // 1`
-- `version.Compare("1.2.3.40", "1.2.3.5") // 1`
-- `version.Compare("1.2.30-beta", "1.2.30") // 1`
+- `versionx.Compare("1.2", "1.3.0") // -1`
+- `versionx.Compare("1.2", "1.1.99") // 1`
+- `versionx.Compare("1.2.3.40", "1.2.3.5") // 1`
+- `versionx.Compare("1.2.30-beta", "1.2.30") // 1`
 
 ## tabular
 

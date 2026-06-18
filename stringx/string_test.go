@@ -103,3 +103,67 @@ func TestIsBlank(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultIfBlank(t *testing.T) {
+	if got := DefaultIfBlank("", "x"); got != "x" {
+		t.Fatalf("got %q", got)
+	}
+	if got := DefaultIfBlank("  ", "x"); got != "x" {
+		t.Fatalf("got %q", got)
+	}
+	if got := DefaultIfBlank("ok", "x"); got != "ok" {
+		t.Fatalf("got %q", got)
+	}
+
+	var nilPtr *string
+	if got := DefaultIfBlank(nilPtr, "x"); got != "x" {
+		t.Fatalf("nil ptr got %q", got)
+	}
+	text := "ok"
+	if got := DefaultIfBlank(&text, "x"); got != "ok" {
+		t.Fatalf("ptr got %q", got)
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	if Truncate("hello", 3) != "hel" {
+		t.Fatalf("truncate ascii failed")
+	}
+	if Truncate("你好世界", 2) != "你好" {
+		t.Fatalf("truncate rune failed")
+	}
+}
+
+func TestSplitTrimJoinNonEmpty(t *testing.T) {
+	got := SplitTrim(" a, b , ,c ", ",")
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("SplitTrim() = %v", got)
+	}
+
+	joined := JoinNonEmpty([]string{"a", " ", "", "b"}, ",")
+	if joined != "a,b" {
+		t.Fatalf("JoinNonEmpty() = %q", joined)
+	}
+}
+
+func TestSnakeCaseAndCamelCase(t *testing.T) {
+	cases := []struct {
+		in    string
+		snake string
+		camel string
+	}{
+		{"HelloWorld", "hello_world", "HelloWorld"},
+		{"hello_world", "hello_world", "HelloWorld"},
+		{"user-id", "user_id", "UserId"},
+		{"HTTPStatus", "http_status", "HttpStatus"},
+	}
+	for _, tc := range cases {
+		if got := SnakeCase(tc.in); got != tc.snake {
+			t.Fatalf("SnakeCase(%q) = %q, want %q", tc.in, got, tc.snake)
+		}
+		if got := CamelCase(tc.in); got != tc.camel {
+			t.Fatalf("CamelCase(%q) = %q, want %q", tc.in, got, tc.camel)
+		}
+	}
+}

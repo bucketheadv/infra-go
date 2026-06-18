@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bucketheadv/infra-go/timefmt"
+	"github.com/bucketheadv/infra-go/timex"
 	"github.com/gin-gonic/gin"
 )
 
@@ -88,13 +88,13 @@ func GinRecovery(cfg GinRecoveryConfig) gin.HandlerFunc {
 				var msg string
 				if gin.Mode() == gin.DebugMode {
 					msg = fmt.Sprintf("[GIN] %s panic recovered:\n%s\n%v\n%s",
-						time.Now().Format(timefmt.DateTimeSlashCommon),
+						time.Now().Format(timex.DateTimeSlashCommon),
 						ginSecureRequestDump(c.Request),
 						rec,
 						string(debug.Stack()))
 				} else {
 					msg = fmt.Sprintf("[GIN] %s panic recovered:\n%v\n%s",
-						time.Now().Format(timefmt.DateTimeSlashCommon),
+						time.Now().Format(timex.DateTimeSlashCommon),
 						rec,
 						string(debug.Stack()))
 				}

@@ -1,6 +1,6 @@
-// Package version 提供版本号解析与比较能力。
+// Package versionx 提供版本号解析与比较能力。
 //
-// 模块：github.com/bucketheadv/infra-go/version
+// 模块：github.com/bucketheadv/infra-go/versionx
 //
 // 支持格式：
 //   - 1.2
@@ -12,4 +12,4 @@
 //   - 按主版本、次版本、补丁号、构建号依次比较（缺失段按 0 处理）；
 //   - 当数字部分相同时，带后缀版本大于无后缀版本（如 1.2.30-beta > 1.2.30）；
 //   - 双方都带后缀时按字典序比较后缀。
-package version
+package versionx

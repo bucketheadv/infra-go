@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bucketheadv/infra-go/timefmt"
+	"github.com/bucketheadv/infra-go/timex"
 )
 
 func formatFileLine(file string, line int, maxLen int) string {
@@ -116,7 +116,7 @@ func formatTextLine(r *Record, callerMax int, colored bool, colors map[Level]str
 	fl := formatFileLine(r.File, r.Line, callerMax)
 	pid := strconv.Itoa(os.Getpid())
 	line := "[" + r.Level.String() + "][" +
-		r.Time.Format(timefmt.DateTimeMillisISO) + "][" + pid + "][" + fl + "][" + r.Logger + "] " +
+		r.Time.Format(timex.DateTimeMillisISO) + "][" + pid + "][" + fl + "][" + r.Logger + "] " +
 		r.Msg + "\n"
 	if prefix == "" {
 		return []byte(line)
@@ -134,7 +134,7 @@ func formatJSONLine(r *Record, callerMax int) ([]byte, error) {
 	fl := formatFileLine(r.File, r.Line, callerMax)
 	m := map[string]any{
 		"level":    strings.ToLower(r.Level.String()),
-		"time":     r.Time.Format(timefmt.DateTimeMillisISO),
+		"time":     r.Time.Format(timex.DateTimeMillisISO),
 		"pid":      os.Getpid(),
 		"fileLine": fl,
 		"logger":   r.Logger,

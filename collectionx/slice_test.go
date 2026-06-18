@@ -360,3 +360,74 @@ func assertUserMapEqual[V comparable](t *testing.T, got, want map[int]V) {
 		}
 	}
 }
+
+func TestReducePaginateSortBy(t *testing.T) {
+	sum := Reduce([]int{1, 2, 3}, 0, func(acc, v int) int { return acc + v })
+	if sum != 6 {
+		t.Fatalf("Reduce() = %d", sum)
+	}
+
+	page := Paginate([]int{1, 2, 3, 4, 5}, 2, 2)
+	if !reflect.DeepEqual(page, []int{3, 4}) {
+		t.Fatalf("Paginate() = %v", page)
+	}
+
+	sorted := SortBy([]string{"b", "a", "c"}, func(s string) string { return s })
+	if !reflect.DeepEqual(sorted, []string{"a", "b", "c"}) {
+		t.Fatalf("SortBy() = %v", sorted)
+	}
+}
+
+func TestIntersectDifferenceMinMax(t *testing.T) {
+	if !reflect.DeepEqual(Intersect([]int{1, 2, 2, 3}, []int{2, 3, 4}), []int{2, 3}) {
+		t.Fatalf("Intersect() failed")
+	}
+	if !reflect.DeepEqual(Difference([]int{1, 2, 3}, []int{2}), []int{1, 3}) {
+		t.Fatalf("Difference() failed")
+	}
+	if minVal, ok := MinOf([]int{3, 1, 2}); !ok || minVal != 1 {
+		t.Fatalf("MinOf() = %d, %v", minVal, ok)
+	}
+	if maxVal, ok := MaxOf([]int{3, 1, 2}); !ok || maxVal != 3 {
+		t.Fatalf("MaxOf() = %d, %v", maxVal, ok)
+	}
+}
+
+func TestFindIndexDistinctByFilterMapUnion(t *testing.T) {
+	arr := []int{10, 20, 30, 20}
+	if idx, ok := FindIndex(arr, func(v int) bool { return v == 30 }); !ok || idx != 2 {
+		t.Fatalf("FindIndex() = %d, %v", idx, ok)
+	}
+	if _, ok := FindIndex(arr, func(v int) bool { return v == 99 }); ok {
+		t.Fatalf("FindIndex() should not find 99")
+	}
+
+	type item struct {
+		ID   int
+		Name string
+	}
+	items := []item{
+		{ID: 1, Name: "a"},
+		{ID: 2, Name: "b"},
+		{ID: 1, Name: "c"},
+		{ID: 3, Name: "d"},
+	}
+	distinct := DistinctBy(items, func(it item) int { return it.ID })
+	if len(distinct) != 3 || distinct[0].Name != "a" || distinct[2].ID != 3 {
+		t.Fatalf("DistinctBy() = %+v", distinct)
+	}
+
+	mapped := FilterMap([]int{1, 2, 3, 4}, func(v int) (int, bool) {
+		if v%2 == 0 {
+			return v * 10, true
+		}
+		return 0, false
+	})
+	if !reflect.DeepEqual(mapped, []int{20, 40}) {
+		t.Fatalf("FilterMap() = %v", mapped)
+	}
+
+	if !reflect.DeepEqual(Union([]int{1, 2, 2}, []int{2, 3}), []int{1, 2, 3}) {
+		t.Fatalf("Union() failed")
+	}
+}

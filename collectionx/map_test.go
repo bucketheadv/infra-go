@@ -58,6 +58,22 @@ func TestSortedMapTraversal(t *testing.T) {
 	}
 }
 
+func TestGetOrDefaultPickOmit(t *testing.T) {
+	m := map[string]int{"a": 1, "b": 2, "c": 3}
+	if got := GetOrDefault(m, "b", 0); got != 2 {
+		t.Fatalf("GetOrDefault() = %d", got)
+	}
+	if got := GetOrDefault(m, "x", 9); got != 9 {
+		t.Fatalf("GetOrDefault(default) = %d", got)
+	}
+	if !reflect.DeepEqual(Pick(m, "a", "c", "x"), map[string]int{"a": 1, "c": 3}) {
+		t.Fatalf("Pick() failed")
+	}
+	if !reflect.DeepEqual(Omit(m, "b"), map[string]int{"a": 1, "c": 3}) {
+		t.Fatalf("Omit() failed")
+	}
+}
+
 func assertIntSliceEqual(t *testing.T, got, want []int) {
 	t.Helper()
 	if len(got) != len(want) {

@@ -37,3 +37,21 @@ func Must[T any](v T, err error) T {
 	}
 	return v
 }
+
+// FirstNonNil 返回首个非 nil 指针；全部为 nil 时返回 nil。
+func FirstNonNil[T any](ptrs ...*T) *T {
+	for _, p := range ptrs {
+		if p != nil {
+			return p
+		}
+	}
+	return nil
+}
+
+// If 根据 cond 返回 a 或 b。
+func If[T any](cond bool, a, b T) T {
+	if cond {
+		return a
+	}
+	return b
+}

@@ -78,9 +78,96 @@ func EndOfMonth(t time.Time) time.Time {
 	return StartOfMonth(t).AddDate(0, 1, 0).Add(-time.Nanosecond)
 }
 
+// StartOfYear 返回当年第一天 00:00:00，保留原时区。
+func StartOfYear(t time.Time) time.Time {
+	y, _, _ := t.Date()
+	return time.Date(y, time.January, 1, 0, 0, 0, 0, t.Location())
+}
+
+// EndOfYear 返回当年最后一天 23:59:59.999999999，保留原时区。
+func EndOfYear(t time.Time) time.Time {
+	return StartOfYear(t).AddDate(1, 0, 0).Add(-time.Nanosecond)
+}
+
+// DaysBetween 计算从 a 到 b 相差的完整日历天数（b 在 a 之后时为正）。
+// 比较基于各自时区下的年月日，忽略时分秒。
+func DaysBetween(a, b time.Time) int {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	aDay := time.Date(ay, am, ad, 0, 0, 0, 0, time.UTC)
+	bDay := time.Date(by, bm, bd, 0, 0, 0, 0, time.UTC)
+	return int(bDay.Sub(aDay).Hours() / 24)
+}
+
 // Between 判断 t 是否在 [start, end] 闭区间内。
 func Between(t, start, end time.Time) bool {
-	return !t.Before(start) && !t.After(end)
+	return InRange(t, start, end, true, true)
+}
+
+// InRange 判断 t 是否在 (start, end) 区间内，可通过 startInclusive/endInclusive 控制端点是否包含。
+func InRange(t, start, end time.Time, startInclusive, endInclusive bool) bool {
+	if startInclusive {
+		if t.Before(start) {
+			return false
+		}
+	} else if !t.After(start) {
+		return false
+	}
+	if endInclusive {
+		return !t.After(end)
+	}
+	return t.Before(end)
+}
+
+// IsSameDay 判断两个时间是否在同一天（同时区下年月日相同）。
+func IsSameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
+}
+
+// IsSameMonth 判断两个时间是否在同一个月（同时区下年月相同）。
+func IsSameMonth(a, b time.Time) bool {
+	ay, am, _ := a.Date()
+	by, bm, _ := b.Date()
+	return ay == by && am == bm
+}
+
+// StartOfWeek 返回当周周一 00:00:00（ISO 8601，周一为一周起始），保留原时区。
+func StartOfWeek(t time.Time) time.Time {
+	start := StartOfDay(t)
+	weekday := int(start.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	return start.AddDate(0, 0, -(weekday - 1))
+}
+
+// EndOfWeek 返回当周周日 23:59:59.999999999，保留原时区。
+func EndOfWeek(t time.Time) time.Time {
+	return StartOfWeek(t).AddDate(0, 0, 7).Add(-time.Nanosecond)
+}
+
+// FormatAny 按 layout 格式化时间；layouts 为空时根据时间精度自动选择常用 layout。
+func FormatAny(t time.Time, layouts ...string) string {
+	if len(layouts) > 0 {
+		return t.Format(layouts[0])
+	}
+	return t.Format(pickFormatLayout(t))
+}
+
+func pickFormatLayout(t time.Time) string {
+	h, m, s := t.Clock()
+	if h == 0 && m == 0 && s == 0 && t.Nanosecond() == 0 {
+		return DateOnly
+	}
+	if t.Nanosecond() == 0 {
+		return DateTimeCommon
+	}
+	if t.Nanosecond()%1_000_000 == 0 {
+		return DateTimeMillisCommon
+	}
+	return DateTimeCommon
 }
 
 func atDayTime(t time.Time, hour, min, sec, nsec int) time.Time {

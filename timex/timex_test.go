@@ -78,10 +78,75 @@ func TestBoundary(t *testing.T) {
 		t.Fatalf("EndOfMonth() = %v", mEnd)
 	}
 
+	yStart := StartOfYear(tm)
+	if yStart.Month() != time.January || yStart.Day() != 1 {
+		t.Fatalf("StartOfYear() = %v", yStart)
+	}
+	yEnd := EndOfYear(tm)
+	if yEnd.Month() != time.December || yEnd.Day() != 31 {
+		t.Fatalf("EndOfYear() = %v", yEnd)
+	}
+
+	if DaysBetween(
+		time.Date(2026, 5, 17, 23, 0, 0, 0, loc),
+		time.Date(2026, 5, 20, 1, 0, 0, 0, loc),
+	) != 3 {
+		t.Fatalf("DaysBetween() mismatch")
+	}
+	if DaysBetween(
+		time.Date(2026, 5, 20, 0, 0, 0, 0, loc),
+		time.Date(2026, 5, 17, 0, 0, 0, 0, loc),
+	) != -3 {
+		t.Fatalf("DaysBetween() negative mismatch")
+	}
+
 	if !Between(tm, start, end) {
 		t.Fatalf("Between() should be true inside same day")
 	}
 	if Between(tm.Add(24*time.Hour), start, end) {
 		t.Fatalf("Between() should be false outside range")
+	}
+}
+
+func TestFormatAnyAndCompare(t *testing.T) {
+	loc := time.UTC
+	day := time.Date(2026, 5, 17, 0, 0, 0, 0, loc)
+	dt := time.Date(2026, 5, 17, 12, 30, 45, 0, loc)
+
+	if FormatAny(day) != "2026-05-17" {
+		t.Fatalf("FormatAny(day) = %q", FormatAny(day))
+	}
+	if FormatAny(dt, DateTimeISO) != "2026-05-17T12:30:45" {
+		t.Fatalf("FormatAny(custom) = %q", FormatAny(dt, DateTimeISO))
+	}
+
+	a := time.Date(2026, 5, 17, 10, 0, 0, 0, loc)
+	b := time.Date(2026, 5, 17, 20, 0, 0, 0, loc)
+	c := time.Date(2026, 5, 1, 0, 0, 0, 0, loc)
+	if !IsSameDay(a, b) || IsSameDay(a, time.Date(2026, 6, 1, 0, 0, 0, 0, loc)) {
+		t.Fatalf("IsSameDay mismatch")
+	}
+	if !IsSameMonth(a, c) || IsSameMonth(b, time.Date(2026, 4, 1, 0, 0, 0, 0, loc)) {
+		t.Fatalf("IsSameMonth mismatch")
+	}
+
+	weekMid := time.Date(2026, 5, 14, 15, 0, 0, 0, loc) // Thursday
+	wStart := StartOfWeek(weekMid)
+	if wStart.Weekday() != time.Monday || wStart.Day() != 11 {
+		t.Fatalf("StartOfWeek() = %v", wStart)
+	}
+	wEnd := EndOfWeek(weekMid)
+	if wEnd.Weekday() != time.Sunday || wEnd.Day() != 17 {
+		t.Fatalf("EndOfWeek() = %v", wEnd)
+	}
+
+	mid := time.Date(2026, 5, 17, 12, 0, 0, 0, loc)
+	start := time.Date(2026, 5, 17, 12, 0, 0, 0, loc)
+	end := time.Date(2026, 5, 17, 13, 0, 0, 0, loc)
+	if !InRange(mid, start, end, true, true) {
+		t.Fatalf("InRange closed failed")
+	}
+	if InRange(start, start, end, false, true) {
+		t.Fatalf("InRange open start should exclude start")
 	}
 }

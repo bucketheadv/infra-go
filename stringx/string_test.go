@@ -149,14 +149,15 @@ func TestSplitTrimJoinNonEmpty(t *testing.T) {
 
 func TestSnakeCaseAndCamelCase(t *testing.T) {
 	cases := []struct {
-		in    string
-		snake string
-		camel string
+		in         string
+		snake      string
+		camel      string
+		lowerCamel string
 	}{
-		{"HelloWorld", "hello_world", "HelloWorld"},
-		{"hello_world", "hello_world", "HelloWorld"},
-		{"user-id", "user_id", "UserId"},
-		{"HTTPStatus", "http_status", "HttpStatus"},
+		{"HelloWorld", "hello_world", "HelloWorld", "helloWorld"},
+		{"hello_world", "hello_world", "HelloWorld", "helloWorld"},
+		{"user-id", "user_id", "UserId", "userId"},
+		{"HTTPStatus", "http_status", "HttpStatus", "httpStatus"},
 	}
 	for _, tc := range cases {
 		if got := SnakeCase(tc.in); got != tc.snake {
@@ -165,5 +166,29 @@ func TestSnakeCaseAndCamelCase(t *testing.T) {
 		if got := CamelCase(tc.in); got != tc.camel {
 			t.Fatalf("CamelCase(%q) = %q, want %q", tc.in, got, tc.camel)
 		}
+		if got := LowerCamelCase(tc.in); got != tc.lowerCamel {
+			t.Fatalf("LowerCamelCase(%q) = %q, want %q", tc.in, got, tc.lowerCamel)
+		}
+	}
+}
+
+func TestStringExtraHelpers(t *testing.T) {
+	if !EqualsIgnoreCase("AbC", "abc") || EqualsIgnoreCase("a", "b") {
+		t.Fatalf("EqualsIgnoreCase failed")
+	}
+	if !Contains("hello", "ell") || Contains("hello", "z") {
+		t.Fatalf("Contains failed")
+	}
+	if !HasPrefix("hello", "he") || !HasSuffix("hello", "lo") {
+		t.Fatalf("HasPrefix/HasSuffix failed")
+	}
+	if KebabCase("HelloWorld") != "hello-world" {
+		t.Fatalf("KebabCase() = %q", KebabCase("HelloWorld"))
+	}
+	if Repeat("ab", 3) != "ababab" {
+		t.Fatalf("Repeat() = %q", Repeat("ab", 3))
+	}
+	if PadLeft("7", 3, '0') != "007" {
+		t.Fatalf("PadLeft() = %q", PadLeft("7", 3, '0'))
 	}
 }

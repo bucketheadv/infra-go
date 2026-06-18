@@ -136,6 +136,18 @@ func SnakeCase[T stringLike](s T) string {
 	return b.String()
 }
 
+// LowerCamelCase 将 snake_case / kebab-case / PascalCase 转为 lowerCamelCase。
+// 例如 "hello_world" -> "helloWorld"，"HelloWorld" -> "helloWorld"。
+func LowerCamelCase[T stringLike](s T) string {
+	cc := CamelCase(s)
+	if cc == "" {
+		return ""
+	}
+	runes := []rune(cc)
+	runes[0] = unicode.ToLower(runes[0])
+	return string(runes)
+}
+
 // CamelCase 将 snake_case / kebab-case / PascalCase 转为 PascalCase。
 // 例如 "hello_world" -> "HelloWorld"，"HelloWorld" -> "HelloWorld"。
 func CamelCase[T stringLike](s T) string {
@@ -185,4 +197,93 @@ func splitCamelParts(s string) []string {
 	}
 	parts = append(parts, string(runes[start:]))
 	return parts
+}
+
+// EqualsIgnoreCase 判断两个字符串是否相等（忽略大小写）。
+func EqualsIgnoreCase[T, U stringLike](a T, b U) bool {
+	sa, oka := asString(a)
+	sb, okb := asString(b)
+	if !oka || !okb {
+		return !oka && !okb
+	}
+	return strings.EqualFold(sa, sb)
+}
+
+// Contains 判断 s 是否包含 substr。
+func Contains[T, U stringLike](s T, substr U) bool {
+	v, ok := asString(s)
+	if !ok {
+		return false
+	}
+	sub, ok := asString(substr)
+	if !ok {
+		return false
+	}
+	return strings.Contains(v, sub)
+}
+
+// HasPrefix 判断 s 是否以 prefix 开头。
+func HasPrefix[T, U stringLike](s T, prefix U) bool {
+	v, ok := asString(s)
+	if !ok {
+		return false
+	}
+	p, ok := asString(prefix)
+	if !ok {
+		return false
+	}
+	return strings.HasPrefix(v, p)
+}
+
+// HasSuffix 判断 s 是否以 suffix 结尾。
+func HasSuffix[T, U stringLike](s T, suffix U) bool {
+	v, ok := asString(s)
+	if !ok {
+		return false
+	}
+	suf, ok := asString(suffix)
+	if !ok {
+		return false
+	}
+	return strings.HasSuffix(v, suf)
+}
+
+// KebabCase 将字符串转为 kebab-case（小写 + 连字符）。
+func KebabCase[T stringLike](s T) string {
+	return strings.ReplaceAll(SnakeCase(s), "_", "-")
+}
+
+// Repeat 将字符串重复 count 次；count <= 0 时返回空串。
+func Repeat[T stringLike](s T, count int) string {
+	if count <= 0 {
+		return ""
+	}
+	v, ok := asString(s)
+	if !ok {
+		return ""
+	}
+	return strings.Repeat(v, count)
+}
+
+// PadLeft 在左侧填充 pad 直至长度达到 length（按 rune 计）；已足够长则原样返回。
+func PadLeft[T stringLike](s T, length int, pad rune) string {
+	if length <= 0 {
+		return ""
+	}
+	v, ok := asString(s)
+	if !ok {
+		return ""
+	}
+	runes := []rune(v)
+	if len(runes) >= length {
+		return v
+	}
+	padStr := string(pad)
+	var b strings.Builder
+	b.Grow(length * len(padStr))
+	for i := len(runes); i < length; i++ {
+		b.WriteString(padStr)
+	}
+	b.WriteString(v)
+	return b.String()
 }

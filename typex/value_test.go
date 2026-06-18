@@ -39,6 +39,21 @@ func TestMust(t *testing.T) {
 	Must(0, assertErr("boom"))
 }
 
+func TestFirstNonNilAndIf(t *testing.T) {
+	var p1, p2 *int
+	v := 1
+	p2 = &v
+	if got := FirstNonNil(p1, p2); got != p2 {
+		t.Fatalf("FirstNonNil() unexpected")
+	}
+	if FirstNonNil[int](nil) != nil {
+		t.Fatalf("FirstNonNil(all nil) should be nil")
+	}
+	if If(true, "a", "b") != "a" || If(false, "a", "b") != "b" {
+		t.Fatalf("If() failed")
+	}
+}
+
 func assertErr(msg string) error {
 	return &testError{msg}
 }

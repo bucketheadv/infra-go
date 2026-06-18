@@ -1,6 +1,9 @@
 package collectionx
 
-import "cmp"
+import (
+	"cmp"
+	"sort"
+)
 
 // Map 将切片元素逐一映射为新类型切片，保留原顺序。
 func Map[T any, R any](arr []T, fn func(T) R) []R {
@@ -61,6 +64,72 @@ func Find[T any](arr []T, predicate func(T) bool) (T, bool) {
 		}
 	}
 	return zero, false
+}
+
+// FindIndex 返回首个满足 predicate 的元素下标；未找到时第二个返回值为 false。
+func FindIndex[T any](arr []T, predicate func(T) bool) (int, bool) {
+	for i, v := range arr {
+		if predicate(v) {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// FilterMap 映射切片元素并在 fn 返回 false 时跳过；保留原顺序。
+func FilterMap[T any, R any](arr []T, fn func(T) (R, bool)) []R {
+	result := make([]R, 0, len(arr))
+	for _, v := range arr {
+		if r, ok := fn(v); ok {
+			result = append(result, r)
+		}
+	}
+	return result
+}
+
+// DistinctBy 按 keyFn 提取的键去重，保留首次出现顺序。
+func DistinctBy[T any, K comparable](arr []T, keyFn func(T) K) []T {
+	if len(arr) == 0 {
+		return []T{}
+	}
+	seen := make(map[K]struct{}, len(arr))
+	result := make([]T, 0, len(arr))
+	for _, v := range arr {
+		k := keyFn(v)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		result = append(result, v)
+	}
+	return result
+}
+
+// Union 返回 a 与 b 的并集，去重并保留 a 的顺序，再追加 b 中首次出现的元素。
+func Union[T comparable](a, b []T) []T {
+	if len(a) == 0 {
+		return Unique(b)
+	}
+	if len(b) == 0 {
+		return Unique(a)
+	}
+	seen := make(map[T]struct{}, len(a)+len(b))
+	result := make([]T, 0, len(a)+len(b))
+	for _, v := range a {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+	for _, v := range b {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+	return result
 }
 
 // Every 当所有元素都满足 predicate 时返回 true；空切片返回 true。
@@ -150,4 +219,110 @@ func ArrayToMap[T any, R cmp.Ordered](arr []T, coverExists bool, keyFunc func(T)
 		}
 	}
 	return result
+}
+
+// Reduce 将切片归约为单个值。
+func Reduce[T any, R any](arr []T, initial R, fn func(R, T) R) R {
+	acc := initial
+	for _, v := range arr {
+		acc = fn(acc, v)
+	}
+	return acc
+}
+
+// Paginate 按 page（从 1 开始）和 size 截取切片页；非法参数返回空切片。
+func Paginate[T any](arr []T, page, size int) []T {
+	if page < 1 || size <= 0 || len(arr) == 0 {
+		return []T{}
+	}
+	start := (page - 1) * size
+	if start >= len(arr) {
+		return []T{}
+	}
+	end := start + size
+	if end > len(arr) {
+		end = len(arr)
+	}
+	return arr[start:end]
+}
+
+// SortBy 按 keyFn 提取的键升序排序，返回新切片，不修改原切片。
+func SortBy[T any, K cmp.Ordered](arr []T, keyFn func(T) K) []T {
+	result := append([]T(nil), arr...)
+	sort.Slice(result, func(i, j int) bool {
+		return keyFn(result[i]) < keyFn(result[j])
+	})
+	return result
+}
+
+// Intersect 返回 a 与 b 的交集，保留 a 中的首次出现顺序。
+func Intersect[T comparable](a, b []T) []T {
+	if len(a) == 0 || len(b) == 0 {
+		return []T{}
+	}
+	set := make(map[T]struct{}, len(b))
+	for _, v := range b {
+		set[v] = struct{}{}
+	}
+	result := make([]T, 0)
+	seen := make(map[T]struct{})
+	for _, v := range a {
+		if _, ok := set[v]; !ok {
+			continue
+		}
+		if _, dup := seen[v]; dup {
+			continue
+		}
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+	return result
+}
+
+// Difference 返回存在于 a 但不在 b 中的元素，保留 a 的顺序。
+func Difference[T comparable](a, b []T) []T {
+	if len(a) == 0 {
+		return []T{}
+	}
+	set := make(map[T]struct{}, len(b))
+	for _, v := range b {
+		set[v] = struct{}{}
+	}
+	result := make([]T, 0, len(a))
+	for _, v := range a {
+		if _, ok := set[v]; !ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+// MinOf 返回切片最小值；空切片时第二个返回值为 false。
+func MinOf[T cmp.Ordered](arr []T) (T, bool) {
+	var zero T
+	if len(arr) == 0 {
+		return zero, false
+	}
+	smallest := arr[0]
+	for _, v := range arr[1:] {
+		if v < smallest {
+			smallest = v
+		}
+	}
+	return smallest, true
+}
+
+// MaxOf 返回切片最大值；空切片时第二个返回值为 false。
+func MaxOf[T cmp.Ordered](arr []T) (T, bool) {
+	var zero T
+	if len(arr) == 0 {
+		return zero, false
+	}
+	largest := arr[0]
+	for _, v := range arr[1:] {
+		if v > largest {
+			largest = v
+		}
+	}
+	return largest, true
 }

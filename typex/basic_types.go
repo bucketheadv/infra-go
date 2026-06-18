@@ -115,3 +115,8 @@ func ArrayElemTo[T cmp.Ordered | bool](v []string) ([]T, error) {
 	}
 	return result, nil
 }
+
+// ToString 将基础类型转为字符串。
+func ToString[T cmp.Ordered | bool](v T) string {
+	return fmt.Sprint(v)
+}

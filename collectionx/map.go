@@ -64,3 +64,38 @@ func SortedMapTraversal[T cmp.Ordered, R any](m map[T]R, reverse bool, function 
 		function(k, m[k])
 	}
 }
+
+// GetOrDefault 获取 map 中的值；key 不存在时返回 defaultVal。
+func GetOrDefault[K comparable, V any](m map[K]V, key K, defaultVal V) V {
+	if v, ok := m[key]; ok {
+		return v
+	}
+	return defaultVal
+}
+
+// Pick 从 map 中挑选指定 key，不存在的 key 会被忽略。
+func Pick[K comparable, V any](m map[K]V, keys ...K) map[K]V {
+	result := make(map[K]V, len(keys))
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// Omit 返回排除指定 key 后的 map 副本。
+func Omit[K comparable, V any](m map[K]V, keys ...K) map[K]V {
+	skip := make(map[K]struct{}, len(keys))
+	for _, k := range keys {
+		skip[k] = struct{}{}
+	}
+	result := make(map[K]V, len(m))
+	for k, v := range m {
+		if _, excluded := skip[k]; excluded {
+			continue
+		}
+		result[k] = v
+	}
+	return result
+}

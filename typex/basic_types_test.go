@@ -130,6 +130,12 @@ func TestArrayElemToErrorAndPartial(t *testing.T) {
 	assertSliceEqual(t, got, []int{1})
 }
 
+func TestToString(t *testing.T) {
+	if ToString(123) != "123" || ToString(true) != "true" {
+		t.Fatalf("ToString() failed")
+	}
+}
+
 func assertNoErr(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

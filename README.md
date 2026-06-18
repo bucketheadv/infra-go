@@ -17,6 +17,18 @@ replace github.com/bucketheadv/infra-go => /绝对路径/infra-go
 
 发布到 GitHub 后删除 `replace` 行并 `go get` 指定 tag 即可。
 
+## timefmt
+
+`import "github.com/bucketheadv/infra-go/timefmt"`
+
+用于通用日期时间布局常量和相对时间格式化，例如：
+
+- `timefmt.DateTimeMillisISO`
+- `timefmt.FormatRelative(t, timefmt.LangZH)` // "5分钟前"
+- `timefmt.FormatRelative(t, timefmt.LangEN)` // "5 minutes ago"
+- `timefmt.RegisterRelativeLocale("fr", locale)` // 动态注册新语言
+- `timefmt.DefaultRelativeFormatter()` // 获取可配置的格式化器
+
 ## timezone
 
 `import "github.com/bucketheadv/infra-go/timezone"`

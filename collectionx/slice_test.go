@@ -431,3 +431,26 @@ func TestFindIndexDistinctByFilterMapUnion(t *testing.T) {
 		t.Fatalf("Union() failed")
 	}
 }
+
+func TestShuffle(t *testing.T) {
+	orig := []int{1, 2, 3, 4, 5}
+	shuffled := Shuffled(orig)
+	if len(shuffled) != len(orig) {
+		t.Fatalf("Shuffled() length = %d", len(shuffled))
+	}
+	seen := make(map[int]int)
+	for _, v := range shuffled {
+		seen[v]++
+	}
+	for _, v := range orig {
+		if seen[v] != 1 {
+			t.Fatalf("Shuffled() missing element %d", v)
+		}
+	}
+
+	copyArr := append([]int(nil), orig...)
+	Shuffle(copyArr)
+	if len(copyArr) != len(orig) {
+		t.Fatalf("Shuffle() length = %d", len(copyArr))
+	}
+}

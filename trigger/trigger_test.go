@@ -24,6 +24,24 @@ func TestNextTriggerTimesInvalidSpec(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error")
 	}
+	if err := ValidateSpec("invalid-spec"); err == nil {
+		t.Fatalf("ValidateSpec() should fail for invalid spec")
+	}
+	if err := ValidateSpec("0 * * * * *"); err != nil {
+		t.Fatalf("ValidateSpec() err=%v", err)
+	}
+}
+
+func TestNextTriggerTime(t *testing.T) {
+	start := time.Date(2026, 5, 16, 10, 0, 0, 0, testLoc)
+	got, err := NextTriggerTime("0 * * * * *", start, testLoc)
+	if err != nil {
+		t.Fatalf("NextTriggerTime() err=%v", err)
+	}
+	want := time.Date(2026, 5, 16, 10, 1, 0, 0, testLoc)
+	if !got.Equal(want) {
+		t.Fatalf("NextTriggerTime() = %v, want %v", got, want)
+	}
 }
 
 func TestNextTriggerTimesNonPositiveN(t *testing.T) {

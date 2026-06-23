@@ -265,6 +265,27 @@ func Repeat[T stringLike](s T, count int) string {
 	return strings.Repeat(v, count)
 }
 
+// Ellipsis 将字符串截断并在末尾追加 "..."；maxLen 为总长度上限（按 rune 计，含省略号）。
+func Ellipsis[T stringLike](s T, maxLen int) string {
+	const suffix = "..."
+	if maxLen <= 0 {
+		return ""
+	}
+	v, ok := asString(s)
+	if !ok {
+		return ""
+	}
+	runes := []rune(v)
+	if len(runes) <= maxLen {
+		return v
+	}
+	suffixRunes := []rune(suffix)
+	if maxLen <= len(suffixRunes) {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-len(suffixRunes)]) + suffix
+}
+
 // PadLeft 在左侧填充 pad 直至长度达到 length（按 rune 计）；已足够长则原样返回。
 func PadLeft[T stringLike](s T, length int, pad rune) string {
 	if length <= 0 {
@@ -285,5 +306,28 @@ func PadLeft[T stringLike](s T, length int, pad rune) string {
 		b.WriteString(padStr)
 	}
 	b.WriteString(v)
+	return b.String()
+}
+
+// PadRight 在右侧填充 pad 直至长度达到 length（按 rune 计）；已足够长则原样返回。
+func PadRight[T stringLike](s T, length int, pad rune) string {
+	if length <= 0 {
+		return ""
+	}
+	v, ok := asString(s)
+	if !ok {
+		return ""
+	}
+	runes := []rune(v)
+	if len(runes) >= length {
+		return v
+	}
+	padStr := string(pad)
+	var b strings.Builder
+	b.Grow(length*len(padStr))
+	b.WriteString(v)
+	for i := len(runes); i < length; i++ {
+		b.WriteString(padStr)
+	}
 	return b.String()
 }

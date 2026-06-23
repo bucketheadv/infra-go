@@ -14,6 +14,24 @@ func TestCompareRules(t *testing.T) {
 	assertCompare(t, "1.2.30-alpha", "1.2.30-beta", -1)
 }
 
+func TestLessGreaterEqual(t *testing.T) {
+	ok, err := Less("1.2", "1.3")
+	if err != nil || !ok {
+		t.Fatalf("Less() = %v, %v", ok, err)
+	}
+	ok, err = Greater("1.3", "1.2")
+	if err != nil || !ok {
+		t.Fatalf("Greater() = %v, %v", ok, err)
+	}
+	ok, err = Equal("1.2", "1.2.0")
+	if err != nil || !ok {
+		t.Fatalf("Equal() = %v, %v", ok, err)
+	}
+	if ok, _ := Equal("1.2", "1.3"); ok {
+		t.Fatalf("Equal() should be false")
+	}
+}
+
 // TestParseInvalid 验证非法格式会返回错误。
 func TestParseInvalid(t *testing.T) {
 	cases := []string{

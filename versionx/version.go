@@ -69,6 +69,24 @@ func MustParse(s string) Version {
 	return v
 }
 
+// Less 判断 left 是否小于 right。
+func Less(left, right string) (bool, error) {
+	cmp, err := Compare(left, right)
+	return cmp < 0, err
+}
+
+// Greater 判断 left 是否大于 right。
+func Greater(left, right string) (bool, error) {
+	cmp, err := Compare(left, right)
+	return cmp > 0, err
+}
+
+// Equal 判断两个版本是否相等。
+func Equal(left, right string) (bool, error) {
+	cmp, err := Compare(left, right)
+	return cmp == 0, err
+}
+
 // Compare 比较两个版本字符串。
 // 返回值：-1 表示 left < right，0 表示相等，1 表示 left > right。
 func Compare(left, right string) (int, error) {

@@ -191,4 +191,10 @@ func TestStringExtraHelpers(t *testing.T) {
 	if PadLeft("7", 3, '0') != "007" {
 		t.Fatalf("PadLeft() = %q", PadLeft("7", 3, '0'))
 	}
+	if PadRight("7", 3, '0') != "700" {
+		t.Fatalf("PadRight() = %q", PadRight("7", 3, '0'))
+	}
+	if Ellipsis("hello world", 8) != "hello..." {
+		t.Fatalf("Ellipsis() = %q", Ellipsis("hello world", 8))
+	}
 }

@@ -2,6 +2,7 @@ package collectionx
 
 import (
 	"cmp"
+	"math/rand/v2"
 	"sort"
 )
 
@@ -157,6 +158,20 @@ func Reverse[T any](arr []T) {
 	for i, j := 0, len(arr)-1; i < j; i, j = i+1, j-1 {
 		arr[i], arr[j] = arr[j], arr[i]
 	}
+}
+
+// Shuffle 使用 Fisher-Yates 算法原地随机打乱切片元素顺序。
+func Shuffle[T any](arr []T) {
+	rand.Shuffle(len(arr), func(i, j int) {
+		arr[i], arr[j] = arr[j], arr[i]
+	})
+}
+
+// Shuffled 返回打乱后的新切片，不修改原切片。
+func Shuffled[T any](arr []T) []T {
+	result := append([]T(nil), arr...)
+	Shuffle(result)
+	return result
 }
 
 // Flatten 将二维切片展平为一维切片。

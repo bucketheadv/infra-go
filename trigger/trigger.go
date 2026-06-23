@@ -53,6 +53,33 @@ func NextTriggerTimes(spec string, startTime time.Time, loc *time.Location, n in
 	return result, nil
 }
 
+// NextTriggerTime 返回 cron 下一次触发时间。
+func NextTriggerTime(spec string, startTime time.Time, loc *time.Location) (time.Time, error) {
+	times, err := NextTriggerTimes(spec, startTime, loc, 1)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if len(times) == 0 {
+		return time.Time{}, fmt.Errorf("no trigger time found")
+	}
+	return times[0], nil
+}
+
+// ValidateSpec 校验 cron 表达式是否合法（含可选年份字段）。
+func ValidateSpec(spec string) error {
+	cronSpec, yearExpr, err := splitSpecAndYear(spec)
+	if err != nil {
+		return err
+	}
+	if _, err := defaultParser.Parse(cronSpec); err != nil {
+		return fmt.Errorf("parse cron spec failed: %w", err)
+	}
+	if _, err := newYearMatcher(yearExpr); err != nil {
+		return err
+	}
+	return nil
+}
+
 func splitSpecAndYear(spec string) (cronSpec string, yearExpr string, err error) {
 	fields := strings.Fields(spec)
 	switch len(fields) {

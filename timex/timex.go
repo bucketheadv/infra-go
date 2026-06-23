@@ -156,6 +156,14 @@ func FormatAny(t time.Time, layouts ...string) string {
 	return t.Format(pickFormatLayout(t))
 }
 
+// NowIn 返回指定时区的当前时间；loc 为 nil 时等价于 time.Now()。
+func NowIn(loc *time.Location) time.Time {
+	if loc == nil {
+		return time.Now()
+	}
+	return time.Now().In(loc)
+}
+
 func pickFormatLayout(t time.Time) string {
 	h, m, s := t.Clock()
 	if h == 0 && m == 0 && s == 0 && t.Nanosecond() == 0 {

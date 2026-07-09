@@ -1,6 +1,7 @@
 package timex
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -38,6 +39,51 @@ func TestFormatDuration(t *testing.T) {
 				t.Fatalf("FormatDuration() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDurationFormatterRegisterAndUnregister(t *testing.T) {
+	formatter := NewDurationFormatter(LangEN, map[Language]DurationLocale{
+		LangEN: durationLocalePlural("0 seconds", map[DurationUnit][2]string{
+			DurationHour: {"hour", "hours"},
+		}),
+	})
+
+	const langFR Language = "fr"
+	formatter.Register(langFR, durationLocalePlural("0 secondes", map[DurationUnit][2]string{
+		DurationHour: {"heure", "heures"},
+	}))
+
+	got := formatter.FormatDuration(2*time.Hour, langFR)
+	if got != "2 heures" {
+		t.Fatalf("custom locale = %q, want %q", got, "2 heures")
+	}
+
+	formatter.Unregister(langFR)
+	got = formatter.FormatDuration(2*time.Hour, langFR)
+	if got != "2 hours" {
+		t.Fatalf("fallback locale = %q, want %q", got, "2 hours")
+	}
+}
+
+func TestRegisterDurationLocaleOnDefaultFormatter(t *testing.T) {
+	const langFR Language = "fr"
+	RegisterDurationLocale(langFR, DurationLocale{
+		Zero: "0 secondes",
+		FormatUnit: func(count int64, unit DurationUnit) string {
+			return fmt.Sprintf("%d heures", count)
+		},
+		JoinParts: func(parts []string) string {
+			return parts[0]
+		},
+	})
+	t.Cleanup(func() {
+		UnregisterDurationLocale(langFR)
+	})
+
+	got := FormatDuration(2*time.Hour, langFR)
+	if got != "2 heures" {
+		t.Fatalf("default formatter custom locale = %q, want %q", got, "2 heures")
 	}
 }
 

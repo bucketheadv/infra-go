@@ -112,8 +112,8 @@ func TestFormatRelativeSince(t *testing.T) {
 		{"de in 1 min", base.Add(1 * time.Minute), LangDE, "in 1 Minute"},
 		{"de in 5 mins", base.Add(5 * time.Minute), LangDE, "in 5 Minuten"},
 
-		// Unknown lang defaults to ZH
-		{"unknown lang", base.Add(-5 * time.Minute), "fr", "5分钟前"},
+		// Unknown lang defaults to EN
+		{"unknown lang", base.Add(-5 * time.Minute), "fr", "5 minutes ago"},
 	}
 
 	for _, tt := range tests {

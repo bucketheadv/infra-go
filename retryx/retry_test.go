@@ -18,6 +18,13 @@ func TestDoSuccess(t *testing.T) {
 	}
 }
 
+func TestDoNilContext(t *testing.T) {
+	err := Do(nil, DefaultConfig(), func() error { return nil })
+	if err != nil {
+		t.Fatalf("nil context should be treated as Background: %v", err)
+	}
+}
+
 func TestDoRetryThenSuccess(t *testing.T) {
 	errSentinel := errors.New("retry")
 	calls := 0

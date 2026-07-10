@@ -10,20 +10,35 @@ import (
 )
 
 type rollingFileAppender struct {
-	path            string
+	// path 当前日志文件路径。
+	path string
+	// maxLinesPerFile 单文件最大行数，超出后滚动。
 	maxLinesPerFile int64
-	retentionDays   int
-	layout          string
-	pattern         string
-	colored         bool
-	levelColors     map[Level]string
-	fieldColors     map[string]string
-	callerFileMax   int
+	// retentionDays 历史文件保留天数。
+	retentionDays int
+	// layout 布局类型（text / json）。
+	layout string
+	// pattern 文本布局 pattern。
+	pattern string
+	// colored 是否启用 ANSI 着色。
+	colored bool
+	// levelColors 级别名到颜色的映射。
+	levelColors map[Level]string
+	// fieldColors 字段名到颜色的映射。
+	fieldColors map[string]string
+	// callerFileMax 调用方文件路径截断最大长度。
+	callerFileMax int
 
-	mu        sync.Mutex
-	file      *os.File
+	// mu 保护文件句柄与行计数。
+	mu sync.Mutex
+	// file 当前打开的日志文件。
+	file *os.File
+	// lineCount 当前文件已写入行数。
 	lineCount int64
-	prefix    string
+	// prefix 滚动文件名前缀。
+	prefix string
+	// rotateCooldown 旋转失败后的退避计数，避免每条日志都重试旋转。
+	rotateCooldown int
 }
 
 func newRollingFileAppender(
@@ -84,6 +99,10 @@ func (r *rollingFileAppender) countLinesInFile(path string) int64 {
 			n++
 		}
 	}
+	// 末尾无换行时仍计为一行，避免少计导致多写一行才滚动。
+	if data[len(data)-1] != '\n' {
+		n++
+	}
 	return n
 }
 
@@ -97,46 +116,108 @@ func (r *rollingFileAppender) Append(rec *Record) {
 	case "json":
 		data, err = formatJSONLine(rec, r.callerFileMax)
 		if err != nil {
+			reportAppendError("json format", err)
 			data = formatTextLine(rec, r.callerFileMax, false, nil)
 		}
 		data = append(data, '\n')
 	case "pattern":
-		data = formatPatternLine(rec, r.callerFileMax, r.colored, r.fieldColors, r.levelColors, r.pattern)
+		data = ensureTrailingNewline(formatPatternLine(rec, r.callerFileMax, r.colored, r.fieldColors, r.levelColors, r.pattern))
 	default:
 		data = formatTextLine(rec, r.callerFileMax, r.colored, r.levelColors)
 	}
 
 	if r.lineCount >= r.maxLinesPerFile {
-		_ = r.rotateUnlocked()
+		if r.rotateCooldown > 0 {
+			r.rotateCooldown--
+		} else if err := r.rotateUnlocked(); err != nil {
+			reportAppendError("rotate", err)
+			r.rotateCooldown = 256
+			// 旋转失败时尽量保证当前仍可写：若 file 仍为 nil 则尝试重新打开。
+			if r.file == nil {
+				if oerr := r.reopenAppendUnlocked(false); oerr != nil {
+					reportAppendError("reopen "+r.path, oerr)
+					return
+				}
+			}
+		} else {
+			r.rotateCooldown = 0
+		}
 	}
 	if r.file == nil {
+		reportAppendError("append", fmt.Errorf("file is closed: %s", r.path))
 		return
 	}
-	_, _ = r.file.Write(data)
-	r.lineCount++
+	if _, err := r.file.Write(data); err != nil {
+		reportAppendError("write "+r.path, err)
+		return
+	}
+	// 按实际写入的换行数累计，避免 pattern 含多个 %n 时与物理行数偏离。
+	r.lineCount += countNewlines(data)
 }
 
-func (r *rollingFileAppender) rotateUnlocked() error {
-	if r.file != nil {
-		_ = r.file.Sync()
-		_ = r.file.Close()
-		r.file = nil
-	}
-	rot := fmt.Sprintf("%s.%d", r.path, time.Now().UnixNano())
-	if err := os.Rename(r.path, rot); err != nil && !os.IsNotExist(err) {
-		f, oerr := os.OpenFile(r.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-		if oerr != nil {
-			return oerr
+func countNewlines(data []byte) int64 {
+	var n int64
+	for _, b := range data {
+		if b == '\n' {
+			n++
 		}
-		r.file = f
-		return err
 	}
-	f, err := os.OpenFile(r.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if n == 0 {
+		return 1
+	}
+	return n
+}
+
+func (r *rollingFileAppender) reopenAppendUnlocked(keepLineCount bool) error {
+	f, err := os.OpenFile(r.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
 	r.file = f
+	if !keepLineCount {
+		r.lineCount = r.countLinesInFile(r.path)
+	}
+	return nil
+}
+
+func (r *rollingFileAppender) syncFile() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.file != nil {
+		if err := r.file.Sync(); err != nil {
+			reportAppendError("sync "+r.path, err)
+		}
+	}
+}
+
+func (r *rollingFileAppender) rotateUnlocked() error {
+	old := r.file
+	if old != nil {
+		_ = old.Sync()
+		_ = old.Close()
+		r.file = nil
+	}
+
+	rot := fmt.Sprintf("%s.%d", r.path, time.Now().UnixNano())
+	if err := os.Rename(r.path, rot); err != nil && !os.IsNotExist(err) {
+		// 重命名失败：回到原文件继续追加，保留当前行计数（避免全量重读大文件）。
+		if oerr := r.reopenAppendUnlocked(true); oerr != nil {
+			return fmt.Errorf("rename: %w; reopen: %v", err, oerr)
+		}
+		return fmt.Errorf("rename: %w", err)
+	}
+
+	f, err := os.OpenFile(r.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		// 原文件已搬走但新文件创建失败：重新打开并重计行数。
+		if oerr := r.reopenAppendUnlocked(false); oerr != nil {
+			return fmt.Errorf("create: %w; reopen: %v", err, oerr)
+		}
+		return fmt.Errorf("create: %w", err)
+	}
+	r.file = f
 	r.lineCount = 0
+	r.rotateCooldown = 0
 	r.purgeOldFilesUnlocked()
 	return nil
 }

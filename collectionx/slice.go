@@ -210,12 +210,12 @@ func Partition[T any](arr []T, size int) [][]T {
 	return result
 }
 
-// GroupBy 按 function 产生的键对切片元素分组。
+// GroupBy 按 keyFn 产生的键对切片元素分组。
 // 返回值中每个 key 对应同组元素，且组内顺序与原切片一致。
-func GroupBy[T any, R cmp.Ordered](arr []T, function func(T) R) map[R][]T {
-	result := map[R][]T{}
+func GroupBy[T any, K comparable](arr []T, keyFn func(T) K) map[K][]T {
+	result := map[K][]T{}
 	for _, ele := range arr {
-		k := function(ele)
+		k := keyFn(ele)
 		result[k] = append(result[k], ele)
 	}
 	return result
@@ -224,8 +224,8 @@ func GroupBy[T any, R cmp.Ordered](arr []T, function func(T) R) map[R][]T {
 // ArrayToMap 将切片按 keyFunc 生成的键转换为 map。
 // 当 coverExists=false 时保留首个同 key 元素；
 // 当 coverExists=true 时后出现元素会覆盖之前的值。
-func ArrayToMap[T any, R cmp.Ordered](arr []T, coverExists bool, keyFunc func(T) R) map[R]T {
-	result := map[R]T{}
+func ArrayToMap[T any, K comparable](arr []T, coverExists bool, keyFunc func(T) K) map[K]T {
+	result := map[K]T{}
 	for _, ele := range arr {
 		k := keyFunc(ele)
 		_, ok := result[k]

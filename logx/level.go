@@ -1,6 +1,7 @@
 package logx
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -35,25 +36,26 @@ func (l Level) String() string {
 	}
 }
 
-func parseLevel(s string) Level {
+// parseLevel 解析级别字符串；空串视为 INFO；未知级别返回错误。
+func parseLevel(s string) (Level, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "trace":
-		return LevelTrace
+		return LevelTrace, nil
 	case "debug":
-		return LevelDebug
+		return LevelDebug, nil
 	case "info", "":
-		return LevelInfo
+		return LevelInfo, nil
 	case "warn", "warning":
-		return LevelWarn
+		return LevelWarn, nil
 	case "error":
-		return LevelError
+		return LevelError, nil
 	case "fatal":
-		return LevelFatal
+		return LevelFatal, nil
 	default:
-		return LevelInfo
+		return LevelInfo, fmt.Errorf("unknown level %q", s)
 	}
 }
 
-func (l Level) enabled(min Level) bool {
-	return l >= min
+func (l Level) enabled(minLevel Level) bool {
+	return l >= minLevel
 }

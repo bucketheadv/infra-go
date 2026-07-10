@@ -14,15 +14,22 @@ const (
 	ErrCodeConvertNumber ErrorCode = "CONVERT_NUMBER"
 	// ErrCodeTypeMismatch JSON 值与目标字段类型不匹配。
 	ErrCodeTypeMismatch ErrorCode = "TYPE_MISMATCH"
+	// ErrCodeInvalidJSON JSON 文本非法或含尾部多余内容。
+	ErrCodeInvalidJSON ErrorCode = "INVALID_JSON"
 )
 
 // Error 是 jsonx 自定义错误类型。
 type Error struct {
-	Code     ErrorCode
-	Message  string
+	// Code 错误码。
+	Code ErrorCode
+	// Message 可读错误说明。
+	Message string
+	// Expected 期望的目标类型或格式。
 	Expected string
-	Value    string
-	Cause    error
+	// Value 触发错误的原始值摘要。
+	Value string
+	// Cause 底层错误（可选）。
+	Cause error
 }
 
 func (e *Error) Error() string {

@@ -3,13 +3,16 @@ package jsonx
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
 )
 
 // Unmarshal 是增强版 JSON 反序列化。
-// 当目标字段是数字类型而 JSON 值为字符串时，会自动尝试转换。
+// 支持常见宽松转换：字符串↔数字、数字/布尔→字符串、布尔接受 0/1 等。
+// 浮点赋给整型时若含小数部分会报错，不会静默截断。
+// 解到 any / map[string]any 时数字为 float64（与 encoding/json 默认一致）。
 func Unmarshal(data []byte, v any) error {
 	if v == nil {
 		return &Error{
@@ -33,6 +36,13 @@ func Unmarshal(data []byte, v any) error {
 	dec.UseNumber()
 	if err := dec.Decode(&raw); err != nil {
 		return err
+	}
+	// 拒绝尾部多余内容，避免 {"a":1}{"b":2} 这类输入被静默截断。
+	if rest := bytes.TrimSpace(data[dec.InputOffset():]); len(rest) > 0 {
+		return &Error{
+			Code:    ErrCodeInvalidJSON,
+			Message: "trailing data after JSON value",
+		}
 	}
 
 	converted, err := convertByType(raw, rv.Type().Elem())
@@ -103,8 +113,38 @@ func convertByType(val any, t reflect.Type) (any, error) {
 		return toUintValue(val, t.Bits())
 	case reflect.Float32, reflect.Float64:
 		return toFloatValue(val, t.Bits())
+	case reflect.Interface:
+		// any / interface{}：将 json.Number 归一为 float64，与 encoding/json 默认行为对齐。
+		return normalizeJSONValue(val), nil
 	default:
 		return val, nil
+	}
+}
+
+// normalizeJSONValue 将 UseNumber 产生的 json.Number 转为 float64（递归处理 map/slice），
+// 使解到 any / map[string]any 时与 encoding/json 默认行为一致。
+func normalizeJSONValue(v any) any {
+	switch x := v.(type) {
+	case json.Number:
+		f, err := x.Float64()
+		if err != nil {
+			return x.String()
+		}
+		return f
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, vv := range x {
+			out[k] = normalizeJSONValue(vv)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, vv := range x {
+			out[i] = normalizeJSONValue(vv)
+		}
+		return out
+	default:
+		return v
 	}
 }
 
@@ -130,11 +170,19 @@ func convertStructMap(m map[string]any, t reflect.Type) (map[string]any, error) 
 
 func buildJSONFieldTypeMap(t reflect.Type) map[string]reflect.Type {
 	out := make(map[string]reflect.Type)
+	collectJSONFieldTypes(t, out)
+	return out
+}
+
+// collectJSONFieldTypes 收集 JSON 字段类型；匿名嵌入且无显式 json 名时展开内层字段。
+// 显式字段优先于嵌入字段（与 encoding/json 一致）。
+func collectJSONFieldTypes(t reflect.Type, out map[string]reflect.Type) {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
-		// 跳过不可导出的普通字段，避免反射写入 panic。
-		// 匿名字段仍允许参与（与标准库处理方式一致）。
 		if f.PkgPath != "" && !f.Anonymous {
+			continue
+		}
+		if f.Anonymous && shouldInlineAnonymous(f) {
 			continue
 		}
 		name, skip := parseJSONFieldName(f)
@@ -143,7 +191,38 @@ func buildJSONFieldTypeMap(t reflect.Type) map[string]reflect.Type {
 		}
 		out[name] = f.Type
 	}
-	return out
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !(f.Anonymous && shouldInlineAnonymous(f)) {
+			continue
+		}
+		ft := f.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if ft.Kind() != reflect.Struct {
+			continue
+		}
+		inner := make(map[string]reflect.Type)
+		collectJSONFieldTypes(ft, inner)
+		for name, typ := range inner {
+			if _, exists := out[name]; !exists {
+				out[name] = typ
+			}
+		}
+	}
+}
+
+func shouldInlineAnonymous(f reflect.StructField) bool {
+	tag := f.Tag.Get("json")
+	if tag == "-" {
+		return false
+	}
+	if tag == "" {
+		return true
+	}
+	name := strings.Split(tag, ",")[0]
+	return name == ""
 }
 
 func parseJSONFieldName(f reflect.StructField) (string, bool) {
@@ -190,18 +269,13 @@ func assignValue(dst reflect.Value, src any) error {
 
 	switch dst.Kind() {
 	case reflect.Struct:
-		m, ok := src.(map[string]any)
-		if !ok {
-			return &Error{
-				Code:     ErrCodeTypeMismatch,
-				Message:  "source is not object for struct field",
-				Expected: dst.Type().String(),
-				Value:    reflect.TypeOf(src).String(),
-			}
+		if m, ok := src.(map[string]any); ok {
+			// 对象 -> struct：按字段映射递归赋值。
+			// 未出现的字段保持原值/零值，不额外覆盖。
+			return assignStruct(dst, m)
 		}
-		// 对象 -> struct：按字段映射递归赋值。
-		// 未出现的字段保持原值/零值，不额外覆盖。
-		return assignStruct(dst, m)
+		// time.Time、自定义 Unmarshaler 等：回退标准库解码。
+		return assignViaJSON(dst, src)
 	case reflect.Slice:
 		arr, ok := src.([]any)
 		if !ok {
@@ -272,21 +346,31 @@ func assignValue(dst reflect.Value, src any) error {
 		dst.Set(mv)
 		return nil
 	case reflect.Interface:
-		// interface{} 直接承接转换后的值。
-		dst.Set(reflect.ValueOf(src))
+		// interface{} 承接归一化后的值（数字为 float64，与 encoding/json 一致）。
+		dst.Set(reflect.ValueOf(normalizeJSONValue(src)))
 		return nil
 	case reflect.String:
-		s, ok := src.(string)
-		if !ok {
+		switch s := src.(type) {
+		case string:
+			dst.SetString(s)
+			return nil
+		case json.Number:
+			dst.SetString(s.String())
+			return nil
+		case float64:
+			dst.SetString(strconv.FormatFloat(s, 'f', -1, 64))
+			return nil
+		case bool:
+			dst.SetString(strconv.FormatBool(s))
+			return nil
+		default:
 			return &Error{
 				Code:     ErrCodeTypeMismatch,
-				Message:  "source is not string",
+				Message:  "cannot convert value to string",
 				Expected: "string",
 				Value:    reflect.TypeOf(src).String(),
 			}
 		}
-		dst.SetString(s)
-		return nil
 	case reflect.Bool:
 		switch b := src.(type) {
 		case bool:
@@ -305,6 +389,30 @@ func assignValue(dst reflect.Value, src any) error {
 				}
 			}
 			dst.SetBool(parsed)
+			return nil
+		case json.Number:
+			n, err := b.Int64()
+			if err != nil || (n != 0 && n != 1) {
+				return &Error{
+					Code:     ErrCodeTypeMismatch,
+					Message:  "cannot convert number to bool",
+					Expected: "bool",
+					Value:    b.String(),
+					Cause:    err,
+				}
+			}
+			dst.SetBool(n == 1)
+			return nil
+		case float64:
+			if b != 0 && b != 1 {
+				return &Error{
+					Code:     ErrCodeTypeMismatch,
+					Message:  "cannot convert float to bool",
+					Expected: "bool",
+					Value:    strconv.FormatFloat(b, 'f', -1, 64),
+				}
+			}
+			dst.SetBool(b == 1)
 			return nil
 		default:
 			return &Error{
@@ -380,28 +488,85 @@ func assignValue(dst reflect.Value, src any) error {
 }
 
 func assignStruct(dst reflect.Value, src map[string]any) error {
-	t := dst.Type()
-	fields := make(map[string]int)
+	fields := make(map[string][]int)
+	collectJSONFieldIndexes(dst.Type(), fields, nil)
+	// 仅处理 JSON 中存在的键；未知字段保持忽略，与标准库行为一致。
+	for key, value := range src {
+		idx, ok := fields[key]
+		if !ok {
+			continue
+		}
+		if err := assignValue(dst.FieldByIndex(idx), value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectJSONFieldIndexes(t reflect.Type, out map[string][]int, index []int) {
+	// 先注册本层显式字段，再展开匿名嵌入，保证外层显式字段优先（与 encoding/json 一致）。
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if f.PkgPath != "" && !f.Anonymous {
+			continue
+		}
+		if f.Anonymous && shouldInlineAnonymous(f) {
 			continue
 		}
 		name, skip := parseJSONFieldName(f)
 		if skip || name == "" {
 			continue
 		}
-		fields[name] = i
+		out[name] = append(append([]int(nil), index...), i)
 	}
-	// 仅处理 JSON 中存在的键；未知字段保持忽略，与标准库行为一致。
-	// 如果希望“未知字段报错”，可在此增加严格模式开关。
-	for key, value := range src {
-		idx, ok := fields[key]
-		if !ok {
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !(f.Anonymous && shouldInlineAnonymous(f)) {
 			continue
 		}
-		if err := assignValue(dst.Field(idx), value); err != nil {
-			return err
+		ft := f.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if ft.Kind() != reflect.Struct {
+			continue
+		}
+		idx := append(append([]int(nil), index...), i)
+		inner := make(map[string][]int)
+		collectJSONFieldIndexes(ft, inner, idx)
+		for name, fieldIdx := range inner {
+			if _, exists := out[name]; !exists {
+				out[name] = fieldIdx
+			}
+		}
+	}
+}
+
+func assignViaJSON(dst reflect.Value, src any) error {
+	b, err := json.Marshal(src)
+	if err != nil {
+		return &Error{
+			Code:     ErrCodeTypeMismatch,
+			Message:  "cannot marshal value for struct field",
+			Expected: dst.Type().String(),
+			Value:    reflect.TypeOf(src).String(),
+			Cause:    err,
+		}
+	}
+	if !dst.CanAddr() {
+		return &Error{
+			Code:     ErrCodeTypeMismatch,
+			Message:  "struct field is not addressable",
+			Expected: dst.Type().String(),
+		}
+	}
+	if err := json.Unmarshal(b, dst.Addr().Interface()); err != nil {
+		return &Error{
+			Code:     ErrCodeTypeMismatch,
+			Message:  "cannot unmarshal value into struct field",
+			Expected: dst.Type().String(),
+			Value:    string(b),
+			Cause:    err,
 		}
 	}
 	return nil
@@ -439,9 +604,7 @@ func toIntValue(val any, bits int) (any, error) {
 		}
 		return n, nil
 	case float64:
-		// 兼容少数非 UseNumber 路径；直接收敛到 int64。
-		// 与 Go 原生转换一致，小数会被截断。
-		return int64(x), nil
+		return floatToInt64(x, bits)
 	default:
 		return val, nil
 	}
@@ -479,19 +642,80 @@ func toUintValue(val any, bits int) (any, error) {
 		}
 		return n, nil
 	case float64:
-		if x < 0 {
-			return nil, &Error{
-				Code:     ErrCodeConvertNumber,
-				Message:  "cannot convert negative float to uint",
-				Expected: "uint",
-				Value:    strconv.FormatFloat(x, 'f', -1, 64),
-			}
-		}
-		// 兼容少数非 UseNumber 路径；小数部分会被截断。
-		return uint64(x), nil
+		return floatToUint64(x, bits)
 	default:
 		return val, nil
 	}
+}
+
+func floatToInt64(x float64, bits int) (int64, error) {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
+		return 0, &Error{
+			Code:     ErrCodeConvertNumber,
+			Message:  "cannot convert NaN/Inf to int",
+			Expected: "int",
+			Value:    strconv.FormatFloat(x, 'f', -1, 64),
+		}
+	}
+	if math.Trunc(x) != x {
+		return 0, &Error{
+			Code:     ErrCodeConvertNumber,
+			Message:  "cannot convert non-integer number to int",
+			Expected: "int",
+			Value:    strconv.FormatFloat(x, 'f', -1, 64),
+		}
+	}
+	s := strconv.FormatFloat(x, 'f', -1, 64)
+	n, err := strconv.ParseInt(s, 10, bits)
+	if err != nil {
+		return 0, &Error{
+			Code:     ErrCodeConvertNumber,
+			Message:  "cannot convert float to int",
+			Expected: "int",
+			Value:    s,
+			Cause:    err,
+		}
+	}
+	return n, nil
+}
+
+func floatToUint64(x float64, bits int) (uint64, error) {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
+		return 0, &Error{
+			Code:     ErrCodeConvertNumber,
+			Message:  "cannot convert NaN/Inf to uint",
+			Expected: "uint",
+			Value:    strconv.FormatFloat(x, 'f', -1, 64),
+		}
+	}
+	if x < 0 {
+		return 0, &Error{
+			Code:     ErrCodeConvertNumber,
+			Message:  "cannot convert negative float to uint",
+			Expected: "uint",
+			Value:    strconv.FormatFloat(x, 'f', -1, 64),
+		}
+	}
+	if math.Trunc(x) != x {
+		return 0, &Error{
+			Code:     ErrCodeConvertNumber,
+			Message:  "cannot convert non-integer number to uint",
+			Expected: "uint",
+			Value:    strconv.FormatFloat(x, 'f', -1, 64),
+		}
+	}
+	s := strconv.FormatFloat(x, 'f', -1, 64)
+	n, err := strconv.ParseUint(s, 10, bits)
+	if err != nil {
+		return 0, &Error{
+			Code:     ErrCodeConvertNumber,
+			Message:  "cannot convert float to uint",
+			Expected: "uint",
+			Value:    s,
+			Cause:    err,
+		}
+	}
+	return n, nil
 }
 
 func toFloatValue(val any, bits int) (any, error) {

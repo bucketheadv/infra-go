@@ -26,6 +26,7 @@ func asString[T stringLike](v T) (string, bool) {
 // IsEmpty 判断字符串是否为空。
 // - string: 长度为 0 返回 true；
 // - *string: nil 或指向空串返回 true。
+// 注意：与 collectionx.IsEmpty 不同，本函数仅面向 string / *string。
 func IsEmpty[T stringLike](v T) bool {
 	s, ok := asString(v)
 	if !ok {
@@ -74,7 +75,7 @@ func Truncate[T stringLike](s T, maxLen int) string {
 func SplitTrim[T stringLike](s T, sep string) []string {
 	v, ok := asString(s)
 	if !ok {
-		return nil
+		return []string{}
 	}
 	parts := strings.Split(v, sep)
 	result := make([]string, 0, len(parts))

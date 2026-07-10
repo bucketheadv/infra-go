@@ -25,6 +25,13 @@ func TestCoalesce(t *testing.T) {
 	if got := Coalesce("", "hello"); got != "hello" {
 		t.Fatalf("Coalesce() = %q", got)
 	}
+	v := 0
+	if got := CoalescePtr(9, nil, &v); got != 0 {
+		t.Fatalf("CoalescePtr() should keep zero value, got %d", got)
+	}
+	if got := CoalescePtr(9, nil, nil); got != 9 {
+		t.Fatalf("CoalescePtr() default = %d", got)
+	}
 }
 
 func TestMust(t *testing.T) {

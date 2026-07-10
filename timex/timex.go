@@ -90,8 +90,9 @@ func EndOfYear(t time.Time) time.Time {
 }
 
 // DaysBetween 计算从 a 到 b 相差的完整日历天数（b 在 a 之后时为正）。
-// 比较基于各自时区下的年月日，忽略时分秒。
+// 比较前会将 b 转换到 a 的时区，再按日历日计算，与 IsSameDay 语义一致。
 func DaysBetween(a, b time.Time) int {
+	b = b.In(a.Location())
 	ay, am, ad := a.Date()
 	by, bm, bd := b.Date()
 	aDay := time.Date(ay, am, ad, 0, 0, 0, 0, time.UTC)
@@ -119,15 +120,19 @@ func InRange(t, start, end time.Time, startInclusive, endInclusive bool) bool {
 	return t.Before(end)
 }
 
-// IsSameDay 判断两个时间是否在同一天（同时区下年月日相同）。
+// IsSameDay 判断两个时间是否为同一日历日。
+// 比较前会将 b 转换到 a 的时区，再比较年月日。
 func IsSameDay(a, b time.Time) bool {
+	b = b.In(a.Location())
 	ay, am, ad := a.Date()
 	by, bm, bd := b.Date()
 	return ay == by && am == bm && ad == bd
 }
 
-// IsSameMonth 判断两个时间是否在同一个月（同时区下年月相同）。
+// IsSameMonth 判断两个时间是否为同一日历月。
+// 比较前会将 b 转换到 a 的时区，再比较年月。
 func IsSameMonth(a, b time.Time) bool {
+	b = b.In(a.Location())
 	ay, am, _ := a.Date()
 	by, bm, _ := b.Date()
 	return ay == by && am == bm
@@ -175,10 +180,10 @@ func pickFormatLayout(t time.Time) string {
 	if t.Nanosecond()%1_000_000 == 0 {
 		return DateTimeMillisCommon
 	}
-	return DateTimeCommon
+	return time.RFC3339Nano
 }
 
-func atDayTime(t time.Time, hour, min, sec, nsec int) time.Time {
+func atDayTime(t time.Time, hour, minute, sec, nsec int) time.Time {
 	y, m, d := t.Date()
-	return time.Date(y, m, d, hour, min, sec, nsec, t.Location())
+	return time.Date(y, m, d, hour, minute, sec, nsec, t.Location())
 }

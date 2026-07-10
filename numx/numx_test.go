@@ -1,6 +1,9 @@
 package numx
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestClampAndInRange(t *testing.T) {
 	if Clamp(5, 1, 10) != 5 || Clamp(0, 1, 10) != 1 || Clamp(99, 1, 10) != 10 {
@@ -38,5 +41,17 @@ func TestApproximatelyEqual(t *testing.T) {
 	}
 	if ApproximatelyEqual(1.0, 2.0, 0.001) {
 		t.Fatal("ApproximatelyEqual() should be false")
+	}
+	if ApproximatelyEqual(math.NaN(), math.NaN(), 0.001) {
+		t.Fatal("ApproximatelyEqual(NaN, NaN) should be false")
+	}
+}
+
+func TestFloatSpecials(t *testing.T) {
+	if !math.IsNaN(Clamp(math.NaN(), 0.0, 1.0)) {
+		t.Fatal("Clamp(NaN) should return NaN")
+	}
+	if InRange(math.NaN(), 0.0, 1.0) {
+		t.Fatal("InRange(NaN) should be false")
 	}
 }

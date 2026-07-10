@@ -2,6 +2,7 @@ package retryx
 
 import (
 	"context"
+	"runtime"
 	"time"
 )
 
@@ -21,7 +22,11 @@ func DefaultConfig() Config {
 }
 
 // Do 在 cfg 限制下执行 fn，失败时按退避策略重试。
+// ctx 为 nil 时视为 context.Background()。
 func Do(ctx context.Context, cfg Config, fn func() error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	maxAttempts := cfg.MaxAttempts
 	if maxAttempts <= 0 {
 		maxAttempts = 3
@@ -55,6 +60,8 @@ func Do(ctx context.Context, cfg Config, fn func() error) error {
 
 func sleep(ctx context.Context, delay time.Duration) error {
 	if delay <= 0 {
+		// Fixed(0) 等零等待场景让出调度，避免纯忙等占满 CPU。
+		runtime.Gosched()
 		return ctx.Err()
 	}
 	timer := time.NewTimer(delay)

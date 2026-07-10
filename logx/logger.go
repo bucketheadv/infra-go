@@ -3,6 +3,7 @@ package logx
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 )
@@ -16,18 +17,34 @@ const (
 
 // Logger 命名日志器，类似 logback 中按 name 区分的 logger。
 type Logger struct {
-	name      string
-	level     Level
+	// name logger 名称。
+	name string
+	// level 最低输出级别。
+	level Level
+	// appenders 绑定的输出器列表。
 	appenders []Appender
-	reg       *Registry
+	// reg 所属注册表。
+	reg *Registry
 }
+
+// fatalExit 在 Fatalf 写完日志后调用；测试可替换。
+var fatalExit = os.Exit
 
 func (l *Logger) enabled(lv Level) bool {
 	return lv.enabled(l.level)
 }
 
+// live 从当前默认注册表按名称解析，确保 Load 后缓存的 *Logger 仍写到新 appender。
+func (l *Logger) live() *Logger {
+	if l == nil {
+		return nil
+	}
+	return Get(l.name)
+}
+
 func (l *Logger) log(ctx context.Context, lv Level, format string, args ...any) {
-	if l == nil || !l.enabled(lv) {
+	cur := l.live()
+	if cur == nil || !cur.enabled(lv) {
 		return
 	}
 	file, line := getCallerBeyondLogx()
@@ -35,22 +52,19 @@ func (l *Logger) log(ctx context.Context, lv Level, format string, args ...any) 
 	if len(args) > 0 {
 		msg = fmt.Sprintf(format, args...)
 	}
-	rec := &Record{
+	appendRecord(cur.name, lv, &Record{
 		Time:   time.Now(),
 		Level:  lv,
-		Logger: l.name,
+		Logger: cur.name,
 		Msg:    msg,
 		File:   file,
 		Line:   line,
-	}
-	for _, a := range l.appenders {
-		a.Append(rec)
-	}
+		Fields: FieldsFrom(ctx),
+	})
 }
 
 // LogFrom 使用调用方给出的源码 file、line（如 GORM 提供的触发 SQL 的位置），其余与常规日志相同（pattern/appenders）。
 func LogFrom(ctx context.Context, loggerName string, lv Level, file string, line int, msg string) {
-	_ = ctx
 	l := Get(loggerName)
 	if l == nil || !l.enabled(lv) {
 		return
@@ -63,16 +77,39 @@ func LogFrom(ctx context.Context, loggerName string, lv Level, file string, line
 			f = shortenCallerPath(f)
 		}
 	}
-	rec := &Record{
+	appendRecord(loggerName, lv, &Record{
 		Time:   time.Now(),
 		Level:  lv,
 		Logger: l.name,
 		Msg:    msg,
 		File:   f,
 		Line:   line,
-	}
-	for _, a := range l.appenders {
-		a.Append(rec)
+		Fields: FieldsFrom(ctx),
+	})
+}
+
+// appendRecord 在稳定的 registry 代际上写入：先 Add inFlight，确认未被 Load/Close 换掉后再 Append，
+// 避免写到已关闭的旧 appender。
+func appendRecord(loggerName string, lv Level, rec *Record) {
+	for {
+		reg := defaultRegistry.Load()
+		reg.inFlight.Add(1)
+		if defaultRegistry.Load() != reg {
+			reg.inFlight.Done()
+			continue
+		}
+		func() {
+			defer reg.inFlight.Done()
+			cur := lookupLogger(reg, loggerName)
+			if cur == nil || !cur.enabled(lv) {
+				return
+			}
+			rec.Logger = cur.name
+			for _, a := range cur.appenders {
+				a.Append(rec)
+			}
+		}()
+		return
 	}
 }
 
@@ -101,9 +138,11 @@ func (l *Logger) Errorf(ctx context.Context, format string, args ...any) {
 	l.log(ctx, LevelError, format, args...)
 }
 
-// Fatalf 输出 FATAL。
+// Fatalf 输出 FATAL 后刷盘并退出进程（exit code 1）。
 func (l *Logger) Fatalf(ctx context.Context, format string, args ...any) {
 	l.log(ctx, LevelFatal, format, args...)
+	flushRegistry(defaultRegistry.Load())
+	fatalExit(1)
 }
 
 // --- 包级便捷方法：使用命名 logger ---
@@ -138,7 +177,7 @@ func Errorf(ctx context.Context, loggerName string, format string, args ...any) 
 	Get(loggerName).log(ctx, LevelError, format, args...)
 }
 
-// Fatalf 使用命名 logger。
+// Fatalf 使用命名 logger，写完后退出进程。
 func Fatalf(ctx context.Context, loggerName string, format string, args ...any) {
-	Get(loggerName).log(ctx, LevelFatal, format, args...)
+	Get(loggerName).Fatalf(ctx, format, args...)
 }

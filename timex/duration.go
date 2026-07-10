@@ -20,15 +20,21 @@ const (
 
 // DurationLocale 单种语言的时长格式化配置。
 type DurationLocale struct {
-	Zero       string
+	// Zero 时长为零时的文案。
+	Zero string
+	// FormatUnit 格式化单个时间单位。
 	FormatUnit func(count int64, unit DurationUnit) string
-	JoinParts  func(parts []string) string
+	// JoinParts 拼接各单位片段。
+	JoinParts func(parts []string) string
 }
 
 // DurationFormatter 时长格式化器，支持动态注册语言。
 type DurationFormatter struct {
-	mu       sync.RWMutex
-	locales  map[Language]DurationLocale
+	// mu 保护 locales 并发读写。
+	mu sync.RWMutex
+	// locales 已注册语言配置。
+	locales map[Language]DurationLocale
+	// fallback 未命中语言时的回退语言。
 	fallback Language
 }
 
@@ -87,7 +93,10 @@ func (f *DurationFormatter) Languages() []Language {
 func (f *DurationFormatter) FormatDuration(d time.Duration, lang Language) string {
 	locale, ok := f.locale(lang)
 	if !ok {
-		locale, _ = f.locale(f.fallbackLang())
+		locale, ok = f.locale(f.fallbackLang())
+	}
+	if !ok || locale.FormatUnit == nil {
+		locale = builtinDurationLocales()[LangEN]
 	}
 
 	if d < 0 {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
@@ -18,42 +19,62 @@ import (
 // SheetSelector 用于选择 Excel sheet。
 // Name 优先级高于 Index；Index 为 0-based，下标越界会返回错误。
 type SheetSelector struct {
-	Name  string
+	// Name sheet 名称；非空时优先按名称选择。
+	Name string
+	// Index sheet 下标（0-based）；Name 为空时使用。
 	Index int
 }
 
 type fieldMeta struct {
+	// header 列标题。
 	header string
-	index  []int
-	typ    reflect.Type
+	// index 结构体字段索引路径（支持嵌套）。
+	index []int
+	// typ 字段类型。
+	typ reflect.Type
 }
 
 // MapOptions 用于 map 行数据读写配置。
 type MapOptions struct {
-	// FieldOrder 指定字段输出顺序；为空时自动从数据中推导并按字典序排序。
+	// FieldOrder 指定字段输出顺序；为空时：
+	//   - 批量写：从全部行推导字段并集；
+	//   - 流式写：仅根据第一行推导并锁定列（后续新字段会报错）。流式场景建议显式设置。
 	FieldOrder []string
 	// TitleMap 字段名 -> 标题名。若字段未配置标题，则默认使用字段名。
 	TitleMap map[string]string
+	// Strict 为 true 时（主要用于读路径）：
+	//   - 读入要求非空 TitleMap，否则报错；
+	//   - TitleMap 出现重复标题会报错；
+	//   - 读入时重复列标题或映射到同一字段会报错；
+	//   - 无法映射到 TitleMap 的标题会报错。
+	Strict bool
+}
+
+// DecodeOptions 用于结构体行解码配置。
+type DecodeOptions struct {
+	// Strict 为 true 时，结构体字段对应标题缺失会返回错误。
+	// 无论是否 Strict，表头出现重复列一律报错（避免静默错列）。
+	Strict bool
 }
 
 // ReadExcel 读取 Excel 并按标题映射到结构体切片。
-func ReadExcel[T any](path string, selector SheetSelector) ([]T, error) {
+func ReadExcel[T any](path string, selector SheetSelector, opts ...DecodeOptions) ([]T, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
-	return ReadExcelFromReader[T](f, selector)
+	return ReadExcelFromReader[T](f, selector, opts...)
 }
 
 // ReadExcelFromReader 从 io.Reader 读取 Excel 并按标题映射到结构体切片。
-func ReadExcelFromReader[T any](reader io.Reader, selector SheetSelector) ([]T, error) {
+func ReadExcelFromReader[T any](reader io.Reader, selector SheetSelector, opts ...DecodeOptions) ([]T, error) {
 	rows, err := readExcelRowsFromReader(reader, selector)
 	if err != nil {
 		return nil, err
 	}
-	return decodeRows[T](rows)
+	return decodeRows[T](rows, opts...)
 }
 
 // WriteExcel 将结构体切片写入 Excel，第一行为标题。
@@ -68,11 +89,14 @@ func WriteExcel[T any](path, sheetName string, rows []T) error {
 	}
 
 	f := excelize.NewFile()
+	defer func() { _ = f.Close() }()
 	defaultName := f.GetSheetName(f.GetActiveSheetIndex())
 	if defaultName == "" {
 		defaultName = "Sheet1"
 	}
-	_ = f.SetSheetName(defaultName, sheetName)
+	if err := f.SetSheetName(defaultName, sheetName); err != nil {
+		return err
+	}
 
 	for i, m := range metas {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
@@ -90,56 +114,58 @@ func WriteExcel[T any](path, sheetName string, rows []T) error {
 			}
 		}
 	}
-	return f.SaveAs(path)
+	return saveExcelAtomic(f, path)
 }
 
 // ReadCSV 读取 CSV 并按标题映射到结构体切片。
-func ReadCSV[T any](path string) ([]T, error) {
+func ReadCSV[T any](path string, opts ...DecodeOptions) ([]T, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
-	return ReadCSVFromReader[T](f)
+	return ReadCSVFromReader[T](f, opts...)
 }
 
 // ReadCSVFromReader 从 io.Reader 读取 CSV 并按标题映射到结构体切片。
-func ReadCSVFromReader[T any](reader io.Reader) ([]T, error) {
+func ReadCSVFromReader[T any](reader io.Reader, opts ...DecodeOptions) ([]T, error) {
 	records, err := readCSVRecords(reader)
 	if err != nil {
 		return nil, err
 	}
-	return decodeRows[T](records)
+	return decodeRows[T](records, opts...)
 }
 
 // ReadCSVStream 流式读取 CSV，并按行回调结构体数据（适合大文件）。
 // rowNum 为 CSV 行号（从 1 开始，含表头行；回调从第 2 行开始触发）。
-func ReadCSVStream[T any](path string, handler func(rowNum int, item T) error) error {
+func ReadCSVStream[T any](path string, handler func(rowNum int, item T) error, opts ...DecodeOptions) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 
-	return ReadCSVStreamFromReader[T](f, handler)
+	return ReadCSVStreamFromReader[T](f, handler, opts...)
 }
 
 // ReadCSVStreamFromReader 从 io.Reader 流式读取 CSV 并按行回调结构体数据。
-func ReadCSVStreamFromReader[T any](reader io.Reader, handler func(rowNum int, item T) error) error {
+func ReadCSVStreamFromReader[T any](reader io.Reader, handler func(rowNum int, item T) error, opts ...DecodeOptions) error {
 	metas, err := buildFieldMetas[T]()
 	if err != nil {
 		return err
 	}
+	strict := firstDecodeOpt(opts).Strict
 	headerMap := map[string]int(nil)
 	return streamCSVRecords(
 		reader,
 		func(header []string) error {
-			headerMap = makeHeaderIndexMap(header)
-			return nil
+			var err error
+			headerMap, err = makeHeaderIndexMap(header)
+			return err
 		},
 		func(rowNum int, record []string) error {
-			item, err := decodeStructRecord[T](record, metas, headerMap, rowNum)
+			item, err := decodeStructRecord[T](record, metas, headerMap, rowNum, strict)
 			if err != nil {
 				return err
 			}
@@ -167,61 +193,71 @@ func WriteCSVStream[T any](path string, producer func(write func(T) error) error
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
-	w := csv.NewWriter(f)
-	headers := make([]string, 0, len(metas))
-	for _, m := range metas {
-		headers = append(headers, m.header)
-	}
-	if err := w.Write(headers); err != nil {
-		return err
-	}
-
-	writeRow := func(row T) error {
-		rv := structValue(reflect.ValueOf(row))
-		record := make([]string, 0, len(metas))
-		for _, m := range metas {
-			record = append(record, formatStringValue(rv.FieldByIndex(m.index)))
+	return writeFileAtomic(path, func(tmpPath string) error {
+		f, err := os.Create(tmpPath)
+		if err != nil {
+			return err
 		}
-		return w.Write(record)
-	}
+		defer func() { _ = f.Close() }()
 
-	if err := producer(writeRow); err != nil {
-		return err
-	}
-	w.Flush()
-	return w.Error()
+		w := csv.NewWriter(f)
+		headers := make([]string, 0, len(metas))
+		for _, m := range metas {
+			headers = append(headers, m.header)
+		}
+		if err := w.Write(headers); err != nil {
+			return err
+		}
+
+		writeRow := func(row T) error {
+			rv := structValue(reflect.ValueOf(row))
+			record := make([]string, 0, len(metas))
+			for _, m := range metas {
+				record = append(record, formatStringValue(rv.FieldByIndex(m.index)))
+			}
+			return w.Write(record)
+		}
+
+		if err := producer(writeRow); err != nil {
+			return err
+		}
+		w.Flush()
+		return w.Error()
+	})
 }
 
 // WriteCSVMaps 将 []map[string]any 写入 CSV，第一行为标题。
 func WriteCSVMaps(path string, rows []map[string]any, opts MapOptions) error {
-	plan := buildMapWritePlan(rows, opts)
-	f, err := os.Create(path)
+	plan, err := buildMapWritePlan(rows, opts)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
-
-	w := csv.NewWriter(f)
-	if err := w.Write(plan.headers); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		record := make([]string, 0, len(plan.fields))
-		for _, field := range plan.fields {
-			record = append(record, mapValueToString(row[field]))
-		}
-		if err := w.Write(record); err != nil {
+	return writeFileAtomic(path, func(tmpPath string) error {
+		f, err := os.Create(tmpPath)
+		if err != nil {
 			return err
 		}
-	}
-	w.Flush()
-	return w.Error()
+		defer func() { _ = f.Close() }()
+
+		w := csv.NewWriter(f)
+		if err := w.Write(plan.headers); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if err := rejectUnexpectedMapKeys(plan.fields, row); err != nil {
+				return err
+			}
+			record := make([]string, 0, len(plan.fields))
+			for _, field := range plan.fields {
+				record = append(record, mapValueToString(row[field]))
+			}
+			if err := w.Write(record); err != nil {
+				return err
+			}
+		}
+		w.Flush()
+		return w.Error()
+	})
 }
 
 // ReadCSVMaps 读取 CSV 并映射为 []map[string]string（key 为字段名）。
@@ -244,7 +280,7 @@ func ReadCSVMapsFromReader(reader io.Reader, opts MapOptions) ([]map[string]stri
 	if len(records) == 0 {
 		return []map[string]string{}, nil
 	}
-	return decodeMapRows(records, opts), nil
+	return decodeMapRows(records, opts)
 }
 
 // ReadCSVMapsStream 流式读取 CSV，并按行回调 map 数据（适合大文件）。
@@ -265,8 +301,9 @@ func ReadCSVMapsStreamFromReader(reader io.Reader, opts MapOptions, handler func
 	return streamCSVRecords(
 		reader,
 		func(header []string) error {
-			fields = mapFieldsFromHeaders(header, opts.TitleMap)
-			return nil
+			var err error
+			fields, err = mapFieldsFromHeaders(header, opts)
+			return err
 		},
 		func(rowNum int, record []string) error {
 			return handler(rowNum, mapFromRecord(fields, record))
@@ -276,16 +313,22 @@ func ReadCSVMapsStreamFromReader(reader io.Reader, opts MapOptions, handler func
 
 // WriteExcelMaps 将 []map[string]any 写入 Excel，第一行为标题。
 func WriteExcelMaps(path, sheetName string, rows []map[string]any, opts MapOptions) error {
-	plan := buildMapWritePlan(rows, opts)
+	plan, err := buildMapWritePlan(rows, opts)
+	if err != nil {
+		return err
+	}
 	if sheetName == "" {
 		sheetName = "Sheet1"
 	}
 	f := excelize.NewFile()
+	defer func() { _ = f.Close() }()
 	defaultName := f.GetSheetName(f.GetActiveSheetIndex())
 	if defaultName == "" {
 		defaultName = "Sheet1"
 	}
-	_ = f.SetSheetName(defaultName, sheetName)
+	if err := f.SetSheetName(defaultName, sheetName); err != nil {
+		return err
+	}
 
 	for i, h := range plan.headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
@@ -294,6 +337,9 @@ func WriteExcelMaps(path, sheetName string, rows []map[string]any, opts MapOptio
 		}
 	}
 	for r, row := range rows {
+		if err := rejectUnexpectedMapKeys(plan.fields, row); err != nil {
+			return err
+		}
 		for c, field := range plan.fields {
 			cell, _ := excelize.CoordinatesToCellName(c+1, r+2)
 			if err := f.SetCellValue(sheetName, cell, mapValueToString(row[field])); err != nil {
@@ -301,59 +347,68 @@ func WriteExcelMaps(path, sheetName string, rows []map[string]any, opts MapOptio
 			}
 		}
 	}
-	return f.SaveAs(path)
+	return saveExcelAtomic(f, path)
 }
 
 // WriteCSVMapsStream 流式写入 CSV（适合大文件）。
 // producer 通过 write 回调逐行产出数据。
+// 表头在首次写入时锁定：若未指定 FieldOrder，则仅根据第一行推断列；
+// 后续行出现未声明字段会返回错误（避免静默丢列）。建议显式设置 FieldOrder。
 func WriteCSVMapsStream(path string, opts MapOptions, producer func(write func(map[string]any) error) error) error {
-	f, err := os.Create(path)
-	if err != nil {
+	if err := validateTitleMap(opts); err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
-
-	w := csv.NewWriter(f)
-	headerWritten := false
-	fields := append([]string{}, opts.FieldOrder...)
-
-	writeHeader := func() error {
-		headers := make([]string, 0, len(fields))
-		for _, field := range fields {
-			headers = append(headers, mapFieldHeader(field, opts.TitleMap))
-		}
-		if err := w.Write(headers); err != nil {
+	return writeFileAtomic(path, func(tmpPath string) error {
+		f, err := os.Create(tmpPath)
+		if err != nil {
 			return err
 		}
-		headerWritten = true
-		return nil
-	}
+		defer func() { _ = f.Close() }()
 
-	if len(fields) > 0 {
-		if err := writeHeader(); err != nil {
-			return err
+		w := csv.NewWriter(f)
+		headerWritten := false
+		fields := append([]string{}, opts.FieldOrder...)
+
+		writeHeader := func() error {
+			headers := make([]string, 0, len(fields))
+			for _, field := range fields {
+				headers = append(headers, mapFieldHeader(field, opts.TitleMap))
+			}
+			if err := w.Write(headers); err != nil {
+				return err
+			}
+			headerWritten = true
+			return nil
 		}
-	}
 
-	writeRow := func(row map[string]any) error {
-		if !headerWritten {
-			fields = inferMapFields([]map[string]any{row})
+		if len(fields) > 0 {
 			if err := writeHeader(); err != nil {
 				return err
 			}
 		}
-		record := make([]string, 0, len(fields))
-		for _, field := range fields {
-			record = append(record, mapValueToString(row[field]))
-		}
-		return w.Write(record)
-	}
 
-	if err := producer(writeRow); err != nil {
-		return err
-	}
-	w.Flush()
-	return w.Error()
+		writeRow := func(row map[string]any) error {
+			if !headerWritten {
+				fields = inferMapFields([]map[string]any{row})
+				if err := writeHeader(); err != nil {
+					return err
+				}
+			} else if err := rejectUnexpectedMapKeys(fields, row); err != nil {
+				return err
+			}
+			record := make([]string, 0, len(fields))
+			for _, field := range fields {
+				record = append(record, mapValueToString(row[field]))
+			}
+			return w.Write(record)
+		}
+
+		if err := producer(writeRow); err != nil {
+			return err
+		}
+		w.Flush()
+		return w.Error()
+	})
 }
 
 // ReadExcelMapsStream 流式读取 Excel，并按行回调 map 数据（适合大文件）。
@@ -373,8 +428,9 @@ func ReadExcelMapsStreamFromReader(reader io.Reader, selector SheetSelector, opt
 	fields := []string(nil)
 	return streamExcelRows(reader, selector, func(rowNum int, cols []string) error {
 		if rowNum == 1 {
-			fields = mapFieldsFromHeaders(cols, opts.TitleMap)
-			return nil
+			var err error
+			fields, err = mapFieldsFromHeaders(cols, opts)
+			return err
 		}
 		return handler(rowNum, mapFromRecord(fields, cols))
 	})
@@ -382,29 +438,31 @@ func ReadExcelMapsStreamFromReader(reader io.Reader, selector SheetSelector, opt
 
 // ReadExcelStream 流式读取 Excel，并按行回调结构体数据（适合大文件）。
 // rowNum 为 sheet 行号（从 1 开始，回调从第 2 行开始触发）。
-func ReadExcelStream[T any](path string, selector SheetSelector, handler func(rowNum int, item T) error) error {
+func ReadExcelStream[T any](path string, selector SheetSelector, handler func(rowNum int, item T) error, opts ...DecodeOptions) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 
-	return ReadExcelStreamFromReader[T](f, selector, handler)
+	return ReadExcelStreamFromReader[T](f, selector, handler, opts...)
 }
 
 // ReadExcelStreamFromReader 从 io.Reader 流式读取 Excel 并按行回调结构体数据。
-func ReadExcelStreamFromReader[T any](reader io.Reader, selector SheetSelector, handler func(rowNum int, item T) error) error {
+func ReadExcelStreamFromReader[T any](reader io.Reader, selector SheetSelector, handler func(rowNum int, item T) error, opts ...DecodeOptions) error {
 	metas, err := buildFieldMetas[T]()
 	if err != nil {
 		return err
 	}
+	strict := firstDecodeOpt(opts).Strict
 	headerMap := map[string]int(nil)
 	return streamExcelRows(reader, selector, func(rowNum int, cols []string) error {
 		if rowNum == 1 {
-			headerMap = makeHeaderIndexMap(cols)
-			return nil
+			var err error
+			headerMap, err = makeHeaderIndexMap(cols)
+			return err
 		}
-		item, err := decodeStructRecord[T](cols, metas, headerMap, rowNum)
+		item, err := decodeStructRecord[T](cols, metas, headerMap, rowNum, strict)
 		if err != nil {
 			return err
 		}
@@ -414,16 +472,24 @@ func ReadExcelStreamFromReader[T any](reader io.Reader, selector SheetSelector, 
 
 // WriteExcelMapsStream 流式写入 Excel（适合大文件）。
 // producer 通过 write 回调逐行产出数据。
+// 表头在首次写入时锁定：若未指定 FieldOrder，则仅根据第一行推断列；
+// 后续行出现未声明字段会返回错误（避免静默丢列）。建议显式设置 FieldOrder。
 func WriteExcelMapsStream(path, sheetName string, opts MapOptions, producer func(write func(map[string]any) error) error) error {
+	if err := validateTitleMap(opts); err != nil {
+		return err
+	}
 	if sheetName == "" {
 		sheetName = "Sheet1"
 	}
 	f := excelize.NewFile()
+	defer func() { _ = f.Close() }()
 	defaultName := f.GetSheetName(f.GetActiveSheetIndex())
 	if defaultName == "" {
 		defaultName = "Sheet1"
 	}
-	_ = f.SetSheetName(defaultName, sheetName)
+	if err := f.SetSheetName(defaultName, sheetName); err != nil {
+		return err
+	}
 
 	sw, err := f.NewStreamWriter(sheetName)
 	if err != nil {
@@ -460,6 +526,8 @@ func WriteExcelMapsStream(path, sheetName string, opts MapOptions, producer func
 			if err := writeHeader(); err != nil {
 				return err
 			}
+		} else if err := rejectUnexpectedMapKeys(fields, row); err != nil {
+			return err
 		}
 		values := make([]any, 0, len(fields))
 		for _, field := range fields {
@@ -479,7 +547,7 @@ func WriteExcelMapsStream(path, sheetName string, opts MapOptions, producer func
 	if err := sw.Flush(); err != nil {
 		return err
 	}
-	return f.SaveAs(path)
+	return saveExcelAtomic(f, path)
 }
 
 // WriteExcelStream 流式写入 Excel（适合大文件）。
@@ -493,11 +561,14 @@ func WriteExcelStream[T any](path, sheetName string, producer func(write func(T)
 		sheetName = "Sheet1"
 	}
 	f := excelize.NewFile()
+	defer func() { _ = f.Close() }()
 	defaultName := f.GetSheetName(f.GetActiveSheetIndex())
 	if defaultName == "" {
 		defaultName = "Sheet1"
 	}
-	_ = f.SetSheetName(defaultName, sheetName)
+	if err := f.SetSheetName(defaultName, sheetName); err != nil {
+		return err
+	}
 
 	sw, err := f.NewStreamWriter(sheetName)
 	if err != nil {
@@ -518,7 +589,7 @@ func WriteExcelStream[T any](path, sheetName string, producer func(write func(T)
 		rv := structValue(reflect.ValueOf(row))
 		values := make([]any, 0, len(metas))
 		for _, m := range metas {
-			values = append(values, formatStringValue(rv.FieldByIndex(m.index)))
+			values = append(values, formatCellValue(rv.FieldByIndex(m.index)))
 		}
 		cell, _ := excelize.CoordinatesToCellName(1, rowIndex)
 		if err := sw.SetRow(cell, values); err != nil {
@@ -534,7 +605,7 @@ func WriteExcelStream[T any](path, sheetName string, producer func(write func(T)
 	if err := sw.Flush(); err != nil {
 		return err
 	}
-	return f.SaveAs(path)
+	return saveExcelAtomic(f, path)
 }
 
 // ReadExcelMaps 读取 Excel 并映射为 []map[string]string（key 为字段名）。
@@ -557,7 +628,7 @@ func ReadExcelMapsFromReader(reader io.Reader, selector SheetSelector, opts MapO
 	if len(rows) == 0 {
 		return []map[string]string{}, nil
 	}
-	return decodeMapRows(rows, opts), nil
+	return decodeMapRows(rows, opts)
 }
 
 func resolveSheetName(f *excelize.File, selector SheetSelector) (string, error) {
@@ -663,18 +734,22 @@ func streamExcelRows(reader io.Reader, selector SheetSelector, onRow func(rowNum
 			return err
 		}
 	}
-	return nil
+	return rows.Error()
 }
 
-func makeHeaderIndexMap(headers []string) map[string]int {
+func makeHeaderIndexMap(headers []string) (map[string]int, error) {
 	headerMap := make(map[string]int, len(headers))
 	for i, h := range headers {
-		headerMap[normalizeHeader(h)] = i
+		key := normalizeHeader(h)
+		if prev, ok := headerMap[key]; ok {
+			return nil, fmt.Errorf("duplicate header %q at columns %d and %d", h, prev+1, i+1)
+		}
+		headerMap[key] = i
 	}
-	return headerMap
+	return headerMap, nil
 }
 
-func decodeRows[T any](rows [][]string) ([]T, error) {
+func decodeRows[T any](rows [][]string, opts ...DecodeOptions) ([]T, error) {
 	metas, err := buildFieldMetas[T]()
 	if err != nil {
 		return nil, err
@@ -683,14 +758,15 @@ func decodeRows[T any](rows [][]string) ([]T, error) {
 		return []T{}, nil
 	}
 
-	headerMap := make(map[string]int, len(rows[0]))
-	for i, h := range rows[0] {
-		headerMap[normalizeHeader(h)] = i
+	strict := firstDecodeOpt(opts).Strict
+	headerMap, err := makeHeaderIndexMap(rows[0])
+	if err != nil {
+		return nil, err
 	}
 
 	result := make([]T, 0, max(0, len(rows)-1))
 	for i := 1; i < len(rows); i++ {
-		item, err := decodeStructRecord[T](rows[i], metas, headerMap, i+1)
+		item, err := decodeStructRecord[T](rows[i], metas, headerMap, i+1, strict)
 		if err != nil {
 			return nil, err
 		}
@@ -699,12 +775,20 @@ func decodeRows[T any](rows [][]string) ([]T, error) {
 	return result, nil
 }
 
-func decodeStructRecord[T any](record []string, metas []fieldMeta, headerMap map[string]int, rowNum int) (T, error) {
+func decodeStructRecord[T any](record []string, metas []fieldMeta, headerMap map[string]int, rowNum int, strict bool) (T, error) {
 	var item T
-	rv := structValue(reflect.ValueOf(&item).Elem())
+	root := reflect.ValueOf(&item).Elem()
+	// 仅当目标类型本身是指针时分配外层；字段级指针保持 nil，直到有非空单元格再分配。
+	rv, err := ensureRootStruct(root)
+	if err != nil {
+		return item, err
+	}
 	for _, m := range metas {
 		idx, ok := headerMap[normalizeHeader(m.header)]
 		if !ok || idx >= len(record) {
+			if strict {
+				return item, fmt.Errorf("row %d: missing column %q", rowNum, m.header)
+			}
 			continue
 		}
 		raw := strings.TrimSpace(record[idx])
@@ -716,6 +800,21 @@ func decodeStructRecord[T any](record []string, metas []fieldMeta, headerMap map
 		}
 	}
 	return item, nil
+}
+
+// ensureRootStruct 返回可写的结构体 Value；若 root 是 nil 指针则分配一层。
+func ensureRootStruct(root reflect.Value) (reflect.Value, error) {
+	v := root
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return reflect.Value{}, fmt.Errorf("target type must be struct")
+	}
+	return v, nil
 }
 
 func buildFieldMetas[T any]() ([]fieldMeta, error) {
@@ -789,7 +888,8 @@ func parseTagName(tag string) (string, bool) {
 func structValue(v reflect.Value) reflect.Value {
 	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
-			v.Set(reflect.New(v.Type().Elem()))
+			// 写路径只读字段：nil 指针不分配，避免污染调用方或对不可寻址值 Set panic。
+			return reflect.Zero(v.Type().Elem())
 		}
 		v = v.Elem()
 	}
@@ -909,11 +1009,16 @@ func formatStringValue(v reflect.Value) string {
 }
 
 type mapWritePlan struct {
-	fields  []string
+	// fields 输出字段名顺序。
+	fields []string
+	// headers 对应列标题。
 	headers []string
 }
 
-func buildMapWritePlan(rows []map[string]any, opts MapOptions) mapWritePlan {
+func buildMapWritePlan(rows []map[string]any, opts MapOptions) (mapWritePlan, error) {
+	if err := validateTitleMap(opts); err != nil {
+		return mapWritePlan{}, err
+	}
 	fields := make([]string, 0)
 	if len(opts.FieldOrder) > 0 {
 		fields = append(fields, opts.FieldOrder...)
@@ -927,7 +1032,62 @@ func buildMapWritePlan(rows []map[string]any, opts MapOptions) mapWritePlan {
 	return mapWritePlan{
 		fields:  fields,
 		headers: headers,
+	}, nil
+}
+
+func validateTitleMap(opts MapOptions) error {
+	if !opts.Strict || len(opts.TitleMap) == 0 {
+		return nil
 	}
+	seen := make(map[string]string, len(opts.TitleMap))
+	for field, title := range opts.TitleMap {
+		key := normalizeHeader(title)
+		if key == "" {
+			continue
+		}
+		if prev, ok := seen[key]; ok && prev != field {
+			return fmt.Errorf("duplicate title %q mapped by fields %q and %q", title, prev, field)
+		}
+		seen[key] = field
+	}
+	return nil
+}
+
+func firstDecodeOpt(opts []DecodeOptions) DecodeOptions {
+	if len(opts) == 0 {
+		return DecodeOptions{}
+	}
+	return opts[0]
+}
+
+func writeFileAtomic(path string, write func(tmpPath string) error) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tabular-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := write(tmpPath); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+func saveExcelAtomic(f *excelize.File, path string) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tabular-*.xlsx")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := f.SaveAs(tmpPath); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func inferMapFields(rows []map[string]any) []string {
@@ -945,6 +1105,23 @@ func inferMapFields(rows []map[string]any) []string {
 	return out
 }
 
+// rejectUnexpectedMapKeys 在流式写表头已锁定后，拒绝后续行中的未知字段，避免静默丢列。
+func rejectUnexpectedMapKeys(fields []string, row map[string]any) error {
+	if len(row) == 0 {
+		return nil
+	}
+	known := make(map[string]struct{}, len(fields))
+	for _, f := range fields {
+		known[f] = struct{}{}
+	}
+	for k := range row {
+		if _, ok := known[k]; !ok {
+			return fmt.Errorf("map write: unexpected field %q not in output columns; include it in FieldOrder or remove the key", k)
+		}
+	}
+	return nil
+}
+
 func mapFieldHeader(field string, titleMap map[string]string) string {
 	if titleMap != nil {
 		if t := strings.TrimSpace(titleMap[field]); t != "" {
@@ -954,30 +1131,48 @@ func mapFieldHeader(field string, titleMap map[string]string) string {
 	return field
 }
 
-func decodeMapRows(rows [][]string, opts MapOptions) []map[string]string {
+func decodeMapRows(rows [][]string, opts MapOptions) ([]map[string]string, error) {
 	headers := rows[0]
-	fields := mapFieldsFromHeaders(headers, opts.TitleMap)
+	fields, err := mapFieldsFromHeaders(headers, opts)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]map[string]string, 0, len(rows)-1)
 	for i := 1; i < len(rows); i++ {
 		item := mapFromRecord(fields, rows[i])
 		out = append(out, item)
 	}
-	return out
+	return out, nil
 }
 
-func mapFieldsFromHeaders(headers []string, titleMap map[string]string) []string {
-	fields := make([]string, 0, len(headers))
-	for _, h := range headers {
-		fields = append(fields, resolveMapFieldByHeader(h, titleMap))
+func mapFieldsFromHeaders(headers []string, opts MapOptions) ([]string, error) {
+	if opts.Strict && len(opts.TitleMap) == 0 {
+		return nil, fmt.Errorf("MapOptions.Strict requires non-empty TitleMap")
 	}
-	return fields
+	if err := validateTitleMap(opts); err != nil {
+		return nil, err
+	}
+	fields := make([]string, 0, len(headers))
+	seen := make(map[string]int, len(headers))
+	for i, h := range headers {
+		field, err := resolveMapFieldByHeader(h, opts)
+		if err != nil {
+			return nil, err
+		}
+		if prev, ok := seen[field]; ok {
+			return nil, fmt.Errorf("duplicate field %q from headers at columns %d and %d", field, prev+1, i+1)
+		}
+		seen[field] = i
+		fields = append(fields, field)
+	}
+	return fields, nil
 }
 
 func mapFromRecord(fields []string, record []string) map[string]string {
 	item := make(map[string]string, len(fields))
 	for c, f := range fields {
 		if c < len(record) {
-			item[f] = record[c]
+			item[f] = strings.TrimSpace(record[c])
 		} else {
 			item[f] = ""
 		}
@@ -985,14 +1180,24 @@ func mapFromRecord(fields []string, record []string) map[string]string {
 	return item
 }
 
-func resolveMapFieldByHeader(header string, titleMap map[string]string) string {
+func resolveMapFieldByHeader(header string, opts MapOptions) (string, error) {
 	h := normalizeHeader(header)
-	for field, title := range titleMap {
+	matched := ""
+	for field, title := range opts.TitleMap {
 		if normalizeHeader(title) == h {
-			return field
+			if matched != "" && matched != field {
+				return "", fmt.Errorf("ambiguous title %q matches fields %q and %q", header, matched, field)
+			}
+			matched = field
 		}
 	}
-	return strings.TrimSpace(header)
+	if matched != "" {
+		return matched, nil
+	}
+	if opts.Strict {
+		return "", fmt.Errorf("unmapped header %q", header)
+	}
+	return strings.TrimSpace(header), nil
 }
 
 func mapValueToString(v any) string {

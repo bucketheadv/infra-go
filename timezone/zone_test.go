@@ -21,6 +21,20 @@ func TestGetTimeZone(t *testing.T) {
 	}
 }
 
+func TestLookup(t *testing.T) {
+	loc, ok := Lookup("UTC+08:00")
+	if !ok || loc == nil {
+		t.Fatal("Lookup fixed zone failed")
+	}
+	loc, ok = Lookup("Asia/Shanghai")
+	if !ok || loc == nil {
+		t.Fatal("Lookup IANA zone failed")
+	}
+	if _, ok := Lookup("Not/A/Zone"); ok {
+		t.Fatal("Lookup unknown should fail")
+	}
+}
+
 func TestInitTimeZoneMapSize(t *testing.T) {
 	if len(timeZoneMap) != len(TimeZones) {
 		t.Fatalf("map size mismatch: got=%d want=%d", len(timeZoneMap), len(TimeZones))

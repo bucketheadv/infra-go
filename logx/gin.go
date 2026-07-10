@@ -27,8 +27,10 @@ const NameGinWriter = "gin"
 type GinLoggerConfig struct {
 	// LoggerName 命名 logger，默认 NameAccess（建议在 YAML 配置 loggers.access）。
 	LoggerName string
-	SkipPaths  []string
-	Skip       func(c *gin.Context) bool
+	// SkipPaths 跳过记录的路径列表。
+	SkipPaths []string
+	// Skip 自定义跳过判断；返回 true 时不记访问日志。
+	Skip func(c *gin.Context) bool
 	// SkipQueryString 为 true 时日志里的 path 不含 query（与 gin 默认 false 一致时带 query）。
 	SkipQueryString bool
 }
@@ -41,8 +43,10 @@ type GinRecoveryConfig struct {
 
 // GinWritersConfig 用于 InstallGinWriters，将 gin 包内直接写入 DefaultWriter / DefaultErrorWriter 的内容导入 logx。
 type GinWritersConfig struct {
-	// OutLoggerName、ErrLoggerName 默认均为 NameGinWriter。
-	OutLoggerName, ErrLoggerName string
+	// OutLoggerName 标准输出对应的 logger 名，默认 NameGinWriter。
+	OutLoggerName string
+	// ErrLoggerName 错误输出对应的 logger 名，默认 NameGinWriter。
+	ErrLoggerName string
 }
 
 // GinLogger 返回等价于 gin.Logger() 的中间件，但每条访问日志经 logx 输出（无 ANSI；级别按 HTTP 状态码：5xx error、4xx warn、其它 info）。
@@ -165,7 +169,11 @@ func formatGinAccessLine(param gin.LogFormatterParams) string {
 }
 
 func ginSecureRequestDump(r *http.Request) string {
-	httpRequest, _ := httputil.DumpRequest(r, false)
+	httpRequest, err := httputil.DumpRequest(r, false)
+	if err != nil {
+		reportAppendError("gin dump request", err)
+		return ""
+	}
 	lines := strings.Split(string(httpRequest), "\r\n")
 	for i, line := range lines {
 		if strings.HasPrefix(line, "Authorization:") {
@@ -176,11 +184,17 @@ func ginSecureRequestDump(r *http.Request) string {
 }
 
 type ginLineWriter struct {
-	name  string
+	// name 写入 logx 时使用的 logger 名称。
+	name string
+	// level 写入时使用的日志级别。
 	level Level
-	buf   bytes.Buffer
-	mu    sync.Mutex
+	// buf 按行缓冲未完成的内容。
+	buf bytes.Buffer
+	// mu 保护缓冲并发写入。
+	mu sync.Mutex
 }
+
+const ginLineWriterMaxBuf = 64 << 10 // 64KiB，防止无换行时缓冲无限增长
 
 func (w *ginLineWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
@@ -190,6 +204,15 @@ func (w *ginLineWriter) Write(p []byte) (int, error) {
 		b := w.buf.Bytes()
 		i := bytes.IndexByte(b, '\n')
 		if i < 0 {
+			if w.buf.Len() > ginLineWriterMaxBuf {
+				line := strings.TrimRight(w.buf.String(), "\r")
+				w.buf.Reset()
+				line = stripANSI(line)
+				if line != "" {
+					reportAppendError("gin writer", fmt.Errorf("line exceeded %d bytes without newline; flushing", ginLineWriterMaxBuf))
+					logGinWriterLine(w.name, w.level, line)
+				}
+			}
 			break
 		}
 		line := strings.TrimRight(string(b[:i]), "\r")

@@ -18,6 +18,7 @@ const NameGorm = "gorm"
 
 // GormLoggerConfig 将 GORM 日志写入 logx（与业务日志同一套 pattern / 文件滚动）。
 type GormLoggerConfig struct {
+	// LoggerName 命名 logger，默认 NameGorm。
 	LoggerName string
 	// SlowThreshold 慢 SQL 阈值，0 则使用 200ms（与 gorm logger.Default 一致）。
 	SlowThreshold time.Duration
@@ -26,9 +27,13 @@ type GormLoggerConfig struct {
 }
 
 type gormLogxLogger struct {
-	name                 string
-	level                glog.LogLevel
-	slowThreshold        time.Duration
+	// name 写入 logx 时使用的 logger 名称。
+	name string
+	// level GORM 日志级别。
+	level glog.LogLevel
+	// slowThreshold 慢 SQL 阈值。
+	slowThreshold time.Duration
+	// ignoreRecordNotFound 为 true 时忽略 ErrRecordNotFound。
 	ignoreRecordNotFound bool
 }
 

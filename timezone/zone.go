@@ -44,11 +44,24 @@ func init() {
 	}
 }
 
+// GetTimeZone 按固定偏移名（如 "UTC+08:00"）查询时区；未找到返回 nil。
 func GetTimeZone(name string) *time.Location {
 	return timeZoneMap[name]
 }
 
-// WithZone 时区转换，并计算对应大区的时间
+// Lookup 查询时区：先匹配固定偏移名，再尝试 IANA 名称（如 "Asia/Shanghai"）。
+func Lookup(name string) (*time.Location, bool) {
+	if loc := GetTimeZone(name); loc != nil {
+		return loc, true
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, false
+	}
+	return loc, true
+}
+
+// WithZone 将同一时刻转换到目标时区表示（保留 instant）。
 func WithZone(now time.Time, location *time.Location) time.Time {
 	if location == nil {
 		return now
@@ -56,7 +69,7 @@ func WithZone(now time.Time, location *time.Location) time.Time {
 	return now.In(location)
 }
 
-// WithZoneRetainFields 仅时区转换，时间不变
+// WithZoneRetainFields 仅替换时区标签，年月日时分秒字段保持不变。
 func WithZoneRetainFields(now time.Time, location *time.Location) time.Time {
 	if location == nil {
 		return now

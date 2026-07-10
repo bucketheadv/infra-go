@@ -87,6 +87,18 @@ func TestRegisterDurationLocaleOnDefaultFormatter(t *testing.T) {
 	}
 }
 
+func TestDaysBetweenTimezone(t *testing.T) {
+	loc := time.FixedZone("UTC+09:00", 9*3600)
+	a := time.Date(2026, 2, 28, 23, 0, 0, 0, time.UTC)
+	b := time.Date(2026, 3, 1, 8, 0, 0, 0, loc) // same instant as a
+	if !IsSameDay(a, b) {
+		t.Fatal("IsSameDay should be true for same instant")
+	}
+	if DaysBetween(a, b) != 0 {
+		t.Fatalf("DaysBetween should be 0, got %d", DaysBetween(a, b))
+	}
+}
+
 func TestNowIn(t *testing.T) {
 	loc := time.FixedZone("UTC+08:00", 8*3600)
 	now := NowIn(loc)

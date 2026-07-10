@@ -46,8 +46,8 @@ func MergeMaps[K comparable, V any](maps ...map[K]V) map[K]V {
 
 // SortedMapTraversal 按 key 排序后遍历 map。
 // reverse=false 时按升序遍历，reverse=true 时按降序遍历。
-// function 会按排序后的顺序被调用。
-func SortedMapTraversal[T cmp.Ordered, R any](m map[T]R, reverse bool, function func(T, R)) {
+// fn 会按排序后的顺序被调用。
+func SortedMapTraversal[T cmp.Ordered, R any](m map[T]R, reverse bool, fn func(T, R)) {
 	keys := make([]T, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -61,7 +61,7 @@ func SortedMapTraversal[T cmp.Ordered, R any](m map[T]R, reverse bool, function 
 	})
 
 	for _, k := range keys {
-		function(k, m[k])
+		fn(k, m[k])
 	}
 }
 

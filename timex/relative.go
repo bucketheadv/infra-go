@@ -31,15 +31,21 @@ const (
 
 // RelativeLocale 单种语言的相对时间配置。
 type RelativeLocale struct {
-	JustNow        string
-	InFewSeconds   string
+	// JustNow 刚刚发生时的文案。
+	JustNow string
+	// InFewSeconds 即将发生（数秒内）的文案。
+	InFewSeconds string
+	// FormatInterval 格式化相对时间间隔。
 	FormatInterval func(count int64, period RelativePeriod, isFuture bool) string
 }
 
 // RelativeFormatter 相对时间格式化器，支持动态注册语言。
 type RelativeFormatter struct {
-	mu       sync.RWMutex
-	locales  map[Language]RelativeLocale
+	// mu 保护 locales 并发读写。
+	mu sync.RWMutex
+	// locales 已注册语言配置。
+	locales map[Language]RelativeLocale
+	// fallback 未命中语言时的回退语言。
 	fallback Language
 }
 
@@ -100,10 +106,14 @@ func (f *RelativeFormatter) FormatRelative(t time.Time, lang Language) string {
 }
 
 // FormatRelativeSince 以 base 时间为基准格式化相对时间。
+// 月/年粒度按 30 天/月、365 天/年近似计算，非精确日历差。
 func (f *RelativeFormatter) FormatRelativeSince(t, base time.Time, lang Language) string {
 	locale, ok := f.locale(lang)
 	if !ok {
-		locale, _ = f.locale(f.fallbackLang())
+		locale, ok = f.locale(f.fallbackLang())
+	}
+	if !ok || locale.FormatInterval == nil {
+		locale = builtinRelativeLocales()[LangEN]
 	}
 
 	diff := base.Sub(t)
@@ -157,7 +167,7 @@ func (f *RelativeFormatter) fallbackLang() Language {
 	return f.fallback
 }
 
-var defaultRelativeFormatter = NewRelativeFormatter(LangZH, builtinRelativeLocales())
+var defaultRelativeFormatter = NewRelativeFormatter(LangEN, builtinRelativeLocales())
 
 // DefaultRelativeFormatter 返回默认相对时间格式化器。
 func DefaultRelativeFormatter() *RelativeFormatter {

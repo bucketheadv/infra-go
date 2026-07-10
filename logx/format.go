@@ -2,6 +2,7 @@ package logx
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -95,16 +96,19 @@ func isDigits(s string) bool {
 	return len(s) > 0
 }
 
-func parseLevelColors(m map[string]string) map[Level]string {
+func parseLevelColors(m map[string]string) (map[Level]string, error) {
 	if len(m) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := make(map[Level]string)
 	for k, v := range m {
-		lv := parseLevel(k)
+		lv, err := parseLevel(k)
+		if err != nil {
+			return nil, fmt.Errorf("levelColors: %w", err)
+		}
 		out[lv] = v
 	}
-	return out
+	return out, nil
 }
 
 func formatTextLine(r *Record, callerMax int, colored bool, colors map[Level]string) []byte {
@@ -139,6 +143,11 @@ func formatJSONLine(r *Record, callerMax int) ([]byte, error) {
 		"fileLine": fl,
 		"logger":   r.Logger,
 		"msg":      r.Msg,
+	}
+	for k, v := range r.Fields {
+		if _, exists := m[k]; !exists {
+			m[k] = v
+		}
 	}
 	return json.Marshal(m)
 }

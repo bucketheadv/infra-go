@@ -6,12 +6,14 @@ import "testing"
 func TestCompareRules(t *testing.T) {
 	assertCompare(t, "1.2", "1.3.0", -1)
 	assertCompare(t, "1.2", "1.1.99", 1)
-	assertCompare(t, "1.2.30-beta", "1.2.30", 1)
+	assertCompare(t, "1.2.30-beta", "1.2.30", -1)
 	assertCompare(t, "1.2", "1.2.0", 0)
 	assertCompare(t, "1.2.3", "1.2.3.0", 0)
 	assertCompare(t, "1.2.3.40", "1.2.3.5", 1)
-	assertCompare(t, "1.2.3.40-beta", "1.2.3.40", 1)
+	assertCompare(t, "1.2.3.40-beta", "1.2.3.40", -1)
 	assertCompare(t, "1.2.30-alpha", "1.2.30-beta", -1)
+	assertCompare(t, "1.0.0-beta.2", "1.0.0-beta.10", -1)
+	assertCompare(t, "1.0.0-1", "1.0.0-alpha", -1)
 }
 
 func TestLessGreaterEqual(t *testing.T) {
@@ -29,6 +31,13 @@ func TestLessGreaterEqual(t *testing.T) {
 	}
 	if ok, _ := Equal("1.2", "1.3"); ok {
 		t.Fatalf("Equal() should be false")
+	}
+}
+
+func TestAccessors(t *testing.T) {
+	v := MustParse("1.2.3.40-beta")
+	if v.Major() != 1 || v.Minor() != 2 || v.Patch() != 3 || v.Build() != 40 || v.Suffix() != "beta" {
+		t.Fatalf("accessors mismatch: %+v", v)
 	}
 }
 

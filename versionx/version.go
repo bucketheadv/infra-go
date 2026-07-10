@@ -7,13 +7,20 @@ import (
 )
 
 // Version 表示解析后的版本号。
+// 比较规则接近 SemVer：数字段相同时，预发布后缀版本小于正式版。
 type Version struct {
-	major  int
-	minor  int
-	patch  int
-	build  int
+	// major 主版本号。
+	major int
+	// minor 次版本号。
+	minor int
+	// patch 修订号。
+	patch int
+	// build 构建号（第四段，可选）。
+	build int
+	// suffix 预发布后缀（如 alpha、rc.1）。
 	suffix string
-	raw    string
+	// raw 原始输入字符串。
+	raw string
 }
 
 // Parse 解析版本号字符串。
@@ -69,22 +76,37 @@ func MustParse(s string) Version {
 	return v
 }
 
+// Major 返回主版本号。
+func (v Version) Major() int { return v.major }
+
+// Minor 返回次版本号。
+func (v Version) Minor() int { return v.minor }
+
+// Patch 返回补丁号。
+func (v Version) Patch() int { return v.patch }
+
+// Build 返回构建号（第四段，缺失为 0）。
+func (v Version) Build() int { return v.build }
+
+// Suffix 返回预发布后缀（不含前导 '-'）。
+func (v Version) Suffix() string { return v.suffix }
+
 // Less 判断 left 是否小于 right。
 func Less(left, right string) (bool, error) {
-	cmp, err := Compare(left, right)
-	return cmp < 0, err
+	order, err := Compare(left, right)
+	return order < 0, err
 }
 
 // Greater 判断 left 是否大于 right。
 func Greater(left, right string) (bool, error) {
-	cmp, err := Compare(left, right)
-	return cmp > 0, err
+	order, err := Compare(left, right)
+	return order > 0, err
 }
 
 // Equal 判断两个版本是否相等。
 func Equal(left, right string) (bool, error) {
-	cmp, err := Compare(left, right)
-	return cmp == 0, err
+	order, err := Compare(left, right)
+	return order == 0, err
 }
 
 // Compare 比较两个版本字符串。
@@ -102,30 +124,32 @@ func Compare(left, right string) (int, error) {
 }
 
 // Compare 比较两个 Version。
+// 数字段相同时：无后缀（正式版）> 有后缀（预发布）；
+// 双方都有后缀时按 SemVer 预发布规则比较（点分标识，纯数字按数值，否则按字典序）。
 func (v Version) Compare(other Version) int {
-	if c := compareInt(v.major, other.major); c != 0 {
-		return c
+	if order := compareInt(v.major, other.major); order != 0 {
+		return order
 	}
-	if c := compareInt(v.minor, other.minor); c != 0 {
-		return c
+	if order := compareInt(v.minor, other.minor); order != 0 {
+		return order
 	}
-	if c := compareInt(v.patch, other.patch); c != 0 {
-		return c
+	if order := compareInt(v.patch, other.patch); order != 0 {
+		return order
 	}
-	if c := compareInt(v.build, other.build); c != 0 {
-		return c
+	if order := compareInt(v.build, other.build); order != 0 {
+		return order
 	}
 
 	if v.suffix == "" && other.suffix == "" {
 		return 0
 	}
 	if v.suffix != "" && other.suffix == "" {
-		return 1
-	}
-	if v.suffix == "" && other.suffix != "" {
 		return -1
 	}
-	return compareString(v.suffix, other.suffix)
+	if v.suffix == "" && other.suffix != "" {
+		return 1
+	}
+	return comparePrerelease(v.suffix, other.suffix)
 }
 
 // String 返回原始版本字符串。
@@ -144,7 +168,33 @@ func compareInt(a, b int) int {
 	}
 }
 
-func compareString(a, b string) int {
+func comparePrerelease(a, b string) int {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	n := len(as)
+	if len(bs) < n {
+		n = len(bs)
+	}
+	for i := 0; i < n; i++ {
+		if order := comparePrereleaseIdent(as[i], bs[i]); order != 0 {
+			return order
+		}
+	}
+	return compareInt(len(as), len(bs))
+}
+
+func comparePrereleaseIdent(a, b string) int {
+	an, aNum := parsePrereleaseNum(a)
+	bn, bNum := parsePrereleaseNum(b)
+	if aNum && bNum {
+		return compareInt(an, bn)
+	}
+	if aNum {
+		return -1 // 纯数字标识小于非数字
+	}
+	if bNum {
+		return 1
+	}
 	switch {
 	case a < b:
 		return -1
@@ -153,4 +203,20 @@ func compareString(a, b string) int {
 	default:
 		return 0
 	}
+}
+
+func parsePrereleaseNum(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }

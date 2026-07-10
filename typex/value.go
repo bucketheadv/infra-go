@@ -20,6 +20,7 @@ func OrZero[T any](ptr *T) T {
 }
 
 // Coalesce 返回第一个非零值；若全部为零值则返回零值。
+// 注意：数值 0、空串、false 均视为零值；若需保留合法零值请用 FirstNonNil / CoalescePtr。
 func Coalesce[T cmp.Ordered | bool](vals ...T) T {
 	var zero T
 	for _, v := range vals {
@@ -28,6 +29,14 @@ func Coalesce[T cmp.Ordered | bool](vals ...T) T {
 		}
 	}
 	return zero
+}
+
+// CoalescePtr 返回首个非 nil 指针的解引用值；全部为 nil 时返回 defaultVal。
+func CoalescePtr[T any](defaultVal T, ptrs ...*T) T {
+	if p := FirstNonNil(ptrs...); p != nil {
+		return *p
+	}
+	return defaultVal
 }
 
 // Must 在 err 非 nil 时 panic，否则返回 v。

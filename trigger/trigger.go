@@ -41,7 +41,11 @@ func NextTriggerTimes(spec string, startTime time.Time, loc *time.Location, n in
 	}
 	dateTime := timezone.WithZone(startTime, loc)
 	result := make([]time.Time, 0, n)
-	for len(result) < n {
+	const maxIterations = 366 * 10000 // 防止年份过滤长期不命中时空转
+	for iter := 0; len(result) < n; iter++ {
+		if iter >= maxIterations {
+			return nil, fmt.Errorf("no trigger time matched year expression %q within search limit", yearExpr)
+		}
 		dateTime = schedule.Next(dateTime)
 		if dateTime.Year() > 9999 {
 			return nil, fmt.Errorf("no trigger time matched year expression %q", yearExpr)
@@ -93,6 +97,7 @@ func splitSpecAndYear(spec string) (cronSpec string, yearExpr string, err error)
 }
 
 type yearExprMatcher struct {
+	// segments 年份表达式解析后的匹配段。
 	segments []yearSegment
 }
 
@@ -123,9 +128,12 @@ func (m *yearExprMatcher) matches(year int) bool {
 }
 
 type yearSegment struct {
+	// start 起始年份（含）。
 	start int
-	end   int
-	step  int
+	// end 结束年份（含）。
+	end int
+	// step 步长；1 表示连续。
+	step int
 }
 
 func (segment yearSegment) matches(year int) bool {

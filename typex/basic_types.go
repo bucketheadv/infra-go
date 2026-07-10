@@ -104,10 +104,10 @@ func StringTo[T cmp.Ordered | bool](v string) (T, error) {
 
 // ArrayElemTo 将字符串切片逐个转换为目标基础类型切片。
 // 当任一元素转换失败时立即返回已成功转换的部分结果与错误。
-func ArrayElemTo[T cmp.Ordered | bool](v []string) ([]T, error) {
-	result := make([]T, 0)
-	for _, v := range v {
-		tmp, err := StringTo[T](v)
+func ArrayElemTo[T cmp.Ordered | bool](vals []string) ([]T, error) {
+	result := make([]T, 0, len(vals))
+	for _, item := range vals {
+		tmp, err := StringTo[T](item)
 		if err != nil {
 			return result, err
 		}
@@ -118,5 +118,38 @@ func ArrayElemTo[T cmp.Ordered | bool](v []string) ([]T, error) {
 
 // ToString 将基础类型转为字符串。
 func ToString[T cmp.Ordered | bool](v T) string {
-	return fmt.Sprint(v)
+	switch x := any(v).(type) {
+	case string:
+		return x
+	case bool:
+		return strconv.FormatBool(x)
+	case int:
+		return strconv.Itoa(x)
+	case int8:
+		return strconv.FormatInt(int64(x), 10)
+	case int16:
+		return strconv.FormatInt(int64(x), 10)
+	case int32:
+		return strconv.FormatInt(int64(x), 10)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case uint:
+		return strconv.FormatUint(uint64(x), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(x), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(x), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(x), 10)
+	case uint64:
+		return strconv.FormatUint(x, 10)
+	case uintptr:
+		return strconv.FormatUint(uint64(x), 10)
+	case float32:
+		return strconv.FormatFloat(float64(x), 'f', -1, 32)
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	default:
+		return fmt.Sprint(v)
+	}
 }

@@ -15,19 +15,29 @@ var (
 )
 
 type personRow struct {
-	ID      int       `json:"id"`
-	Name    string    `json:"name"`
-	Score   float64   `json:"score"`
-	Enabled bool      `json:"enabled"`
-	At      time.Time `json:"at"`
+	// ID 编号。
+	ID int `json:"id"`
+	// Name 姓名。
+	Name string `json:"name"`
+	// Score 得分。
+	Score float64 `json:"score"`
+	// Enabled 是否启用。
+	Enabled bool `json:"enabled"`
+	// At 时间。
+	At time.Time `json:"at"`
 }
 
 type personRowWithTitle struct {
-	ID      int       `title:"编号"`
-	Name    string    `title:"姓名"`
-	Score   float64   `title:"得分"`
-	Enabled bool      `title:"启用"`
-	At      time.Time `title:"时间"`
+	// ID 编号。
+	ID int `title:"编号"`
+	// Name 姓名。
+	Name string `title:"姓名"`
+	// Score 得分。
+	Score float64 `title:"得分"`
+	// Enabled 是否启用。
+	Enabled bool `title:"启用"`
+	// At 时间。
+	At time.Time `title:"时间"`
 }
 
 func TestWriteReadCSV(t *testing.T) {
@@ -489,6 +499,153 @@ func TestReadExcelMapsStreamFromReader(t *testing.T) {
 	}
 	if len(got) != 2 || got[1]["name"] != "bob" {
 		t.Fatalf("unexpected excel maps stream: %+v", got)
+	}
+}
+
+func TestStrictDecodeMissingColumn(t *testing.T) {
+	csvData := "id,name\n1,alice\n"
+	_, err := ReadCSVFromReader[personRow](strings.NewReader(csvData), DecodeOptions{Strict: true})
+	if err == nil {
+		t.Fatal("expected missing column error")
+	}
+	if !strings.Contains(err.Error(), "missing column") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStrictDecodeDuplicateHeader(t *testing.T) {
+	csvData := "id,name,name\n1,alice,bob\n"
+	_, err := ReadCSVFromReader[personRow](strings.NewReader(csvData))
+	if err == nil {
+		t.Fatal("expected duplicate header error")
+	}
+	if !strings.Contains(err.Error(), "duplicate header") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStrictMapRequiresTitleMap(t *testing.T) {
+	csvData := "id,name\n1,alice\n"
+	_, err := ReadCSVMapsFromReader(strings.NewReader(csvData), MapOptions{Strict: true})
+	if err == nil || !strings.Contains(err.Error(), "TitleMap") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStrictMapUnmappedHeader(t *testing.T) {
+	csvData := "编号,姓名,extra\n1,alice,x\n"
+	opts := MapOptions{
+		TitleMap: map[string]string{"id": "编号", "name": "姓名"},
+		Strict:   true,
+	}
+	_, err := ReadCSVMapsFromReader(strings.NewReader(csvData), opts)
+	if err == nil {
+		t.Fatal("expected unmapped header error")
+	}
+	if !strings.Contains(err.Error(), "unmapped header") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStrictMapDuplicateField(t *testing.T) {
+	csvData := "编号,编号\n1,2\n"
+	opts := MapOptions{
+		TitleMap: map[string]string{"id": "编号"},
+		Strict:   true,
+	}
+	_, err := ReadCSVMapsFromReader(strings.NewReader(csvData), opts)
+	if err == nil {
+		t.Fatal("expected duplicate field error")
+	}
+	if !strings.Contains(err.Error(), "duplicate field") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStrictMapStreamUnmappedHeader(t *testing.T) {
+	csvData := "编号,extra\n1,x\n"
+	opts := MapOptions{
+		TitleMap: map[string]string{"id": "编号"},
+		Strict:   true,
+	}
+	err := ReadCSVMapsStreamFromReader(strings.NewReader(csvData), opts, func(int, map[string]string) error {
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "unmapped header") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStrictExcelMissingColumn(t *testing.T) {
+	dir := outputDir(t, "TestStrictExcelMissingColumn")
+	file := filepath.Join(dir, "partial.xlsx")
+	type shortRow struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := WriteExcel(file, "Sheet1", []shortRow{{ID: 1, Name: "alice"}}); err != nil {
+		t.Fatalf("write excel failed: %v", err)
+	}
+	_, err := ReadExcel[personRow](file, SheetSelector{Name: "Sheet1"}, DecodeOptions{Strict: true})
+	if err == nil || !strings.Contains(err.Error(), "missing column") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStrictExcelStreamMissingColumn(t *testing.T) {
+	dir := outputDir(t, "TestStrictExcelStreamMissingColumn")
+	file := filepath.Join(dir, "partial-stream.xlsx")
+	type shortRow struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := WriteExcel(file, "Sheet1", []shortRow{{ID: 1, Name: "alice"}}); err != nil {
+		t.Fatalf("write excel failed: %v", err)
+	}
+	err := ReadExcelStream[personRow](file, SheetSelector{Name: "Sheet1"}, func(int, personRow) error {
+		return nil
+	}, DecodeOptions{Strict: true})
+	if err == nil || !strings.Contains(err.Error(), "missing column") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPointerFieldsStayNilWhenMissing(t *testing.T) {
+	type row struct {
+		ID   int     `json:"id"`
+		Name *string `json:"name"`
+	}
+	got, err := ReadCSVFromReader[row](strings.NewReader("id\n1\n"))
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != 1 || got[0].Name != nil {
+		t.Fatalf("unexpected row: %+v", got[0])
+	}
+}
+
+func TestStreamMapWriteRejectsNewField(t *testing.T) {
+	dir := outputDir(t, "TestStreamMapWriteRejectsNewField")
+	file := filepath.Join(dir, "stream.csv")
+	err := WriteCSVMapsStream(file, MapOptions{}, func(write func(map[string]any) error) error {
+		if err := write(map[string]any{"id": 1}); err != nil {
+			return err
+		}
+		return write(map[string]any{"id": 2, "name": "bob"})
+	})
+	if err == nil || !strings.Contains(err.Error(), "unexpected field") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBatchMapWriteRejectsExtraField(t *testing.T) {
+	dir := outputDir(t, "TestBatchMapWriteRejectsExtraField")
+	file := filepath.Join(dir, "batch.csv")
+	err := WriteCSVMaps(file, []map[string]any{
+		{"id": 1, "name": "alice"},
+	}, MapOptions{FieldOrder: []string{"id"}})
+	if err == nil || !strings.Contains(err.Error(), "unexpected field") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
